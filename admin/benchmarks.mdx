@@ -1,0 +1,94 @@
+---
+title: "Benchmarking Models in oMLX"
+description: "Run one-click prefill and generation throughput benchmarks from the admin panel and understand what PP and TG metrics mean for real-world model performance."
+---
+
+The oMLX Admin Dashboard includes a built-in benchmark tool that measures how fast a model processes input (prefill) and generates output (generation) on your hardware. Benchmarks run entirely locally and report results in tokens per second, making it straightforward to compare models or quantization levels side-by-side.
+
+## Metrics
+
+Two primary throughput metrics are reported for each benchmark run:
+
+| Metric | Full name | What it measures |
+|--------|-----------|-----------------|
+| **PP** | Prefill throughput | Tokens per second while the model processes the input context |
+| **TG** | Text generation throughput | Tokens per second while the model generates output tokens |
+
+Higher is better for both. PP throughput matters most for workloads with large system prompts or long retrieved documents (RAG). TG throughput matters most for interactive chat and coding assistance where you are waiting for the model to stream a response.
+
+Additional metrics reported per test run:
+
+- **TTFT** (time to first token, in milliseconds) — latency from request submission to first output token
+- **TPOT** (time per output token, in milliseconds) — average time between consecutive output tokens
+- **Peak memory** — peak MLX memory usage during the run, in GB
+
+## How to run a benchmark
+
+<Steps>
+  <Step title="Open the Admin Dashboard">
+    Navigate to `http://localhost:8000/admin` in your browser.
+  </Step>
+  <Step title="Go to the Benchmark tab">
+    Click **Benchmark** in the top navigation bar.
+  </Step>
+  <Step title="Select a model">
+    Choose the model you want to benchmark from the dropdown. The model does not need to be loaded — the benchmark runner loads it automatically and unloads any other currently loaded models first to ensure a clean memory state.
+  </Step>
+  <Step title="Choose prompt lengths">
+    Select one or more context lengths to test: 1024, 4096, 8192, 16384, 32768, 65536, 131072, or 200000 tokens. Each length produces an independent PP and TG measurement.
+  </Step>
+  <Step title="Run and wait">
+    Click **Run Benchmark**. The panel shows live progress through five phases: unloading existing models, loading the target model, JIT warmup, single-request tests, and cleanup. Results appear as each test completes.
+  </Step>
+</Steps>
+
+<Note>
+Benchmark results are persisted in the admin panel stats and survive server restarts. Results from runs where experimental features (DFlash, SpecPrefill, TurboQuant KV) were active are kept locally but are not submitted to the community leaderboard, since those features alter throughput in ways that would skew comparisons.
+</Note>
+
+## Interpreting results
+
+### Prefill (PP) throughput
+
+PP throughput tells you how quickly the model can process a given number of input tokens. A model with high PP throughput handles long prompts — large codebases, long documents, extended conversation history — with less latency before output starts.
+
+PP throughput typically decreases at longer context lengths because the attention mechanism has more tokens to attend over. The benchmark tests multiple lengths so you can see this curve for your specific model and hardware.
+
+### Generation (TG) throughput
+
+TG throughput is the metric most users feel directly: it controls how fast text streams to the screen. Generation is memory-bandwidth-bound on Apple Silicon, so TG throughput is relatively stable across context lengths but varies significantly between quantization levels (4-bit models generate faster than 8-bit models of the same architecture).
+
+### Cold cache vs. warm cache
+
+The benchmark generates prompts with unique UUID prefixes so that each run starts from a cold cache — no KV cache reuse from a previous session. This gives you the worst-case baseline.
+
+To measure the benefit of oMLX's tiered KV cache (hot RAM tier + cold SSD tier), run the same benchmark twice in a row without clearing the cache between runs. The second run will show lower TTFT and higher effective PP throughput for prompts whose prefix was already cached.
+
+<Tip>
+Run benchmarks after a fresh server start for reproducible cold-cache numbers. Compare those results to a second immediate run to quantify your cache hit rate.
+</Tip>
+
+## Factors that affect results
+
+<AccordionGroup>
+  <Accordion title="Model size and quantization">
+    Larger models are slower. Within the same architecture family, lower-bit quantizations (4-bit, 2-bit) generate faster because they use less memory bandwidth, at the cost of some output quality.
+  </Accordion>
+  <Accordion title="Continuous batching">
+    The benchmark also supports batch tests (batch sizes 2, 4, and 8). Batch PP and TG measure aggregate throughput across concurrent requests, reflecting how the server performs under real multi-user load. Batch TG throughput is typically much higher than single-request TG throughput because the model processes multiple token positions in parallel.
+  </Accordion>
+  <Accordion title="Experimental features">
+    DFlash speculative decoding, SpecPrefill sparse prefill, and TurboQuant KV compression all change throughput numbers. Benchmarks run with any of these features enabled are flagged as experimental and are not submitted to the community leaderboard.
+  </Accordion>
+  <Accordion title="Background activity">
+    macOS background tasks (Spotlight indexing, iCloud sync, Time Machine) can intermittently reduce memory bandwidth and increase variance in benchmark results. For the most stable numbers, run benchmarks when the system is otherwise idle.
+  </Accordion>
+</AccordionGroup>
+
+## Community benchmarks
+
+Results from standard runs are automatically submitted to the public leaderboard at [omlx.ai/benchmarks](https://omlx.ai/benchmarks), where you can compare your hardware against other Apple Silicon configurations and model variants. Submissions are tied to an anonymised owner hash derived from your hardware UUID.
+
+<Warning>
+Results with experimental features active are never submitted to the community leaderboard. If you want your results to appear publicly, disable DFlash, SpecPrefill, and TurboQuant KV before running the benchmark.
+</Warning>

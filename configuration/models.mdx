@@ -1,0 +1,129 @@
+---
+title: "Model Directory Setup and Auto-Detection in oMLX"
+description: "How oMLX discovers MLX-format models from flat and two-level directory layouts, auto-detects model types, and lets you override aliases and types per model."
+---
+
+oMLX discovers models by scanning the directory (or directories) specified by `--model-dir`. No manifest file or registration step is required — drop an MLX-format model into the folder, and it appears in `/v1/models` on the next request or after a manual refresh from the admin panel. Understanding the directory layout, format requirements, and auto-detection rules will help you organize models and avoid surprises.
+
+## Directory layout
+
+oMLX accepts two directory structures: **flat** (one level) and **two-level** (namespaced, common for HuggingFace organization names).
+
+<Tabs>
+  <Tab title="Flat layout">
+    ```
+    ~/models/
+    ├── Qwen3-Coder-8B-4bit/
+    │   ├── config.json
+    │   ├── tokenizer.json
+    │   └── model.safetensors
+    ├── bge-m3/
+    │   ├── config.json
+    │   └── model.safetensors
+    └── Step-3.5-Flash-8bit/
+        ├── config.json
+        └── model-00001-of-00004.safetensors
+    ```
+
+    Each subdirectory name becomes the model ID returned by `/v1/models`.
+  </Tab>
+  <Tab title="Two-level layout">
+    ```
+    ~/models/
+    └── mlx-community/
+        ├── Qwen3-Coder-8B-4bit/
+        │   ├── config.json
+        │   └── model.safetensors
+        └── Llama-3.2-3B-Instruct-4bit/
+            ├── config.json
+            └── model.safetensors
+    ```
+
+    oMLX recognizes namespaced layouts like `mlx-community/model-name/` and uses the full relative path as the model ID, e.g. `mlx-community/Qwen3-Coder-8B-4bit`.
+  </Tab>
+</Tabs>
+
+## MLX format requirement
+
+Every model must be in **MLX format**: a `config.json` describing the architecture, plus one or more `.safetensors` files containing the weights. Models in PyTorch (`.bin`) or GGUF format are not supported. Use the [mlx-lm convert](https://github.com/ml-explore/mlx-lm) tool or download pre-converted models from HuggingFace.
+
+<Warning>
+  oMLX will not load a directory that lacks `config.json` or `.safetensors` files. Such directories are silently skipped during model discovery.
+</Warning>
+
+## Auto-detection by type
+
+oMLX reads `config.json` and probes the weight layout to determine model type automatically. No manual labeling is needed in the common case.
+
+| Type | Examples | Notes |
+|------|----------|-------|
+| **LLM** | Any model supported by mlx-lm | Default type for text generation models |
+| **VLM** | Qwen3.5 Series, GLM-4V, Pixtral, other mlx-vlm models | Enables vision inputs and multi-image chat |
+| **OCR** | DeepSeek-OCR, DOTS-OCR, GLM-OCR | Auto-detected with optimized system prompts |
+| **Embedding** | BERT, BGE-M3, ModernBERT | Served via `/v1/embeddings` |
+| **Reranker** | ModernBERT, XLM-RoBERTa | Served via `/v1/rerank` |
+
+## Per-model settings
+
+oMLX stores per-model configuration in `~/.omlx/model_settings.json`. You can edit settings from the admin panel at `/admin` — changes apply immediately without a server restart.
+
+### Model alias
+
+Set a custom API-visible name for any model. Once set:
+
+- `/v1/models` returns the alias as the model ID.
+- Requests can use either the alias or the original directory name.
+
+This is useful for giving long quantized model names a shorter, stable identifier your tools can target.
+
+### Model type override
+
+If auto-detection produces the wrong result, you can manually set the type to `llm` or `vlm` from the admin panel. This is stored in `model_settings.json` and persists across restarts.
+
+### Sampling parameters
+
+Per-model overrides for `max_tokens`, `temperature`, `top_p`, `top_k`, `repetition_penalty`, and other generation parameters can be set from the admin panel. When set, they take precedence over the global defaults in `settings.json`. When left unset (`null`), the global defaults apply.
+
+## Downloading models
+
+The recommended way to add models is the **Model Downloader** in the admin dashboard at `/admin`. It lets you search HuggingFace directly, inspect model cards and file sizes, and download with one click into your configured model directory.
+
+<Steps>
+  <Step title="Open the admin dashboard">
+    Navigate to `http://localhost:8000/admin` in your browser.
+  </Step>
+  <Step title="Go to Model Downloader">
+    Click the **Downloader** tab. Search for a model by name or HuggingFace repo ID.
+  </Step>
+  <Step title="Download">
+    Click the download button. Progress is shown in real time. The model appears in the model list automatically once the download completes.
+  </Step>
+</Steps>
+
+### HuggingFace mirror endpoint
+
+For regions with restricted access to `huggingface.co`, specify an alternate endpoint:
+
+```bash
+omlx serve --model-dir ~/models --hf-endpoint https://hf-mirror.com
+```
+
+This sets the `HF_ENDPOINT` environment variable before the model downloader or any mlx-lm load call makes network requests.
+
+### ModelScope
+
+For users in regions where ModelScope (`modelscope.cn`) is preferred:
+
+```bash
+omlx serve --model-dir ~/models --ms-endpoint https://modelscope.cn
+```
+
+## trust_remote_code
+
+`trust_remote_code` is **disabled by default**. When a HuggingFace model repository ships custom Python files — typically named `modeling_*.py` or `tokenization_*.py` — those files are executed at load time if `trust_remote_code` is enabled. This is a significant security risk for repositories you have not audited.
+
+<Warning>
+  Only enable `trust_remote_code` for model repositories you control or have reviewed in full. Malicious code in a `modeling_*.py` file runs with the full privileges of the oMLX process.
+</Warning>
+
+You can enable it per model from the admin panel under **Per-Model Settings**. The setting is stored in `model_settings.json` and applies only to that specific model. There is no global `trust_remote_code` flag in `omlx serve` — the granular per-model control is intentional.

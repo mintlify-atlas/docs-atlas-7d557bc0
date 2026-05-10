@@ -1,0 +1,173 @@
+---
+title: "Tool Calling and Structured Output"
+description: "oMLX supports all mlx-lm function calling formats—JSON, XML, bracket, and namespaced—plus JSON schema validation and optional grammar-constrained decoding."
+---
+
+oMLX delegates tool call detection to mlx-lm's built-in `TokenizerWrapper` tool parser system, which automatically selects the correct parsing strategy based on the model's chat template. This means you get native tool calling for every supported model family without any manual configuration: pass a `tools` array in your request and oMLX handles encoding, streaming suppression, and structured response assembly.
+
+## Supported Model Families
+
+| Model Family | Tool Call Format |
+|---|---|
+| Llama, Qwen, DeepSeek, and most others | JSON `<tool_call>` |
+| Qwen3.5 Series | XML `<function=...>` |
+| Gemma | `<start_function_call>` / `<\|tool_call\|>` |
+| GLM (4.7, 5) | `<arg_key>/<arg_value>` XML |
+| MiniMax | Namespaced `<minimax:tool_call>` |
+| Mistral / Devstral | `[TOOL_CALLS]` (one-sided marker) |
+| Kimi K2 | `<\|tool_calls_section_begin\|>` |
+| Longcat | `<longcat_tool_call>` |
+
+Models not in this table may still work if their chat template accepts `tools` and their output uses a recognized `<tool_call>` XML format. oMLX falls back to a generic XML parser automatically.
+
+<Note>
+  Tool calling requires the model's chat template to accept a `tools` parameter. If the template does not support it, the `tools` array is silently ignored and the model generates plain text.
+</Note>
+
+## How Parsing Works
+
+<Steps>
+  <Step title="Template encoding">
+    The `tools` array is passed to `tokenizer.apply_chat_template()` in the OpenAI format. mlx-lm's tokenizer wrapper encodes the tool definitions according to the model's native format.
+  </Step>
+
+  <Step title="Stream suppression">
+    During streaming, `ToolCallStreamFilter` detects known tool-call opening envelopes (e.g. `<tool_call>`, `[TOOL_CALLS]`, namespaced tags) and suppresses them from the streamed content deltas. Prose text before the tool call is emitted normally.
+  </Step>
+
+  <Step title="Turn completion and parsing">
+    After the model finishes generating (EOS token), `parse_tool_calls()` runs the full parser on the complete output. Parsed calls are returned as structured `ToolCall` objects in the `tool_calls` field of the response, matching the OpenAI response schema exactly.
+  </Step>
+
+  <Step title="Argument serialization">
+    All argument values are serialized to a JSON-object string regardless of how the model emitted them (dict, XML attributes, positional). Non-dict argument payloads are coerced to `{}` so downstream chat templates that iterate `arguments.items()` never crash.
+  </Step>
+</Steps>
+
+## Example Request
+
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen3-Coder-8bit",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is the current weather in Tokyo?"
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "Get the current weather for a location",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "location": {
+                "type": "string",
+                "description": "City name, e.g. Tokyo"
+              },
+              "unit": {
+                "type": "string",
+                "enum": ["celsius", "fahrenheit"]
+              }
+            },
+            "required": ["location"]
+          }
+        }
+      }
+    ],
+    "stream": false
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_a3f2b1c0",
+            "type": "function",
+            "function": {
+              "name": "get_weather",
+              "arguments": "{\"location\": \"Tokyo\", \"unit\": \"celsius\"}"
+            }
+          }
+        ]
+      },
+      "finish_reason": "tool_calls"
+    }
+  ]
+}
+```
+
+## Streaming with Tool Calls
+
+When `stream: true`, oMLX emits assistant prose tokens incrementally as they are generated. Tool-call control markup (the model-specific delimiters) is suppressed from the stream. Once the turn is complete, the structured `tool_calls` array is emitted in the final delta chunk with `finish_reason: "tool_calls"`.
+
+This matches the behavior of the OpenAI streaming API: your client receives text as it generates, then receives the full parsed tool call at the end of the turn.
+
+## Structured Output (JSON Schema)
+
+Pass `response_format` to request structured JSON output:
+
+```json
+{
+  "model": "Qwen3-Coder-8bit",
+  "messages": [{ "role": "user", "content": "List the planets in order." }],
+  "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+      "name": "planets",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "planets": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "required": ["planets"]
+      }
+    }
+  }
+}
+```
+
+oMLX validates the model's output against the provided schema using `jsonschema`. If validation fails, the error is surfaced in the response rather than silently returning malformed JSON.
+
+| `response_format.type` | Behavior |
+|---|---|
+| `text` | Plain text output (default) |
+| `json_object` | Extract and validate any JSON object from output |
+| `json_schema` | Extract JSON and validate against provided schema |
+
+## Grammar-Constrained Decoding
+
+For reliable structured output, oMLX supports grammar-constrained decoding via `GrammarConstraintProcessor`. This feature restricts the model's sampling distribution at every token step so only tokens consistent with the target JSON schema can be generated—making schema violations structurally impossible rather than just unlikely.
+
+<Warning>
+  Grammar-constrained decoding requires the optional `[grammar]` extra, which installs `torch` (~2 GB download). Install it with:
+
+  ```bash
+  pip install "omlx[grammar]"
+  ```
+
+  Without the `[grammar]` extra, `response_format` still works via post-generation validation; only the guarantee of structural correctness is lost.
+</Warning>
+
+## Reasoning Model Support
+
+For reasoning models that emit `<think>...</think>` blocks, oMLX strips the thinking section before tool call parsing. If the model's regular (non-thinking) output contains no tool calls but the thinking block does, oMLX promotes the thinking-block tool calls as the actual invocation—with two guards:
+
+1. If the model also produced non-empty regular text, the thinking tool call is discarded (it was reasoning, not a real invocation).
+2. The promoted tool call's function name must match one of the provided `tools` definitions.

@@ -1,0 +1,169 @@
+---
+title: "GET /v1/mcp/tools and POST /v1/mcp/execute"
+description: "List all tools available from connected MCP servers and execute them directly via the API, with server name, tool name, and argument inputs."
+---
+
+oMLX integrates with the Model Context Protocol (MCP), enabling models to call tools provided by external MCP servers — filesystem access, web search, code execution, database queries, and more. The MCP API routes expose these tools directly over HTTP, so you can inspect what tools are available and invoke them from any client without going through the model.
+
+<Note>
+  MCP support requires the server to be started with the `--mcp-config` flag pointing to a valid MCP configuration file. If MCP is not configured, the tools and servers endpoints return empty results and the execute endpoint returns HTTP 503.
+</Note>
+
+## List MCP tools
+
+**`GET /v1/mcp/tools`**
+
+Returns all tools currently available from all connected MCP servers. Each tool entry includes its name (scoped as `server_name__tool_name`), description, the server it belongs to, and its input schema.
+
+### Example
+
+```bash
+curl http://localhost:8000/v1/mcp/tools
+```
+
+### Response
+
+<ResponseField name="tools" type="object[]">
+  Array of tool objects from all connected MCP servers.
+
+  <Expandable title="Tool object properties">
+    <ResponseField name="name" type="string">
+      Full tool name, scoped to its server in the format `server_name__tool_name`. Use this value as `tool_name` when executing the tool.
+    </ResponseField>
+    <ResponseField name="description" type="string">
+      Human-readable description of what the tool does.
+    </ResponseField>
+    <ResponseField name="server" type="string">
+      Name of the MCP server this tool belongs to.
+    </ResponseField>
+    <ResponseField name="parameters" type="object">
+      JSON Schema describing the tool's input arguments.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="count" type="number">
+  Total number of available tools.
+</ResponseField>
+
+### Example response
+
+```json
+{
+  "tools": [
+    {
+      "name": "filesystem__read_file",
+      "description": "Read the contents of a file at the given path.",
+      "server": "filesystem",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Absolute path to the file"
+          }
+        },
+        "required": ["path"]
+      }
+    },
+    {
+      "name": "filesystem__list_directory",
+      "description": "List the contents of a directory.",
+      "server": "filesystem",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string"}
+        },
+        "required": ["path"]
+      }
+    }
+  ],
+  "count": 2
+}
+```
+
+## Execute an MCP tool
+
+**`POST /v1/mcp/execute`**
+
+Execute a specific MCP tool by name and pass arguments to it. The server routes the call to the appropriate MCP server and returns the result.
+
+### Parameters
+
+<ParamField body="tool_name" type="string" required>
+  The full scoped tool name, in the format `server_name__tool_name`. This matches the `name` field from `GET /v1/mcp/tools`.
+</ParamField>
+
+<ParamField body="arguments" type="object">
+  Arguments to pass to the tool, matching the tool's JSON Schema `parameters`. Defaults to an empty object `{}` if not provided.
+</ParamField>
+
+### Examples
+
+```bash
+curl http://localhost:8000/v1/mcp/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tool_name": "filesystem__read_file",
+    "arguments": {
+      "path": "/home/user/notes.txt"
+    }
+  }'
+```
+
+```python
+import requests
+
+response = requests.post(
+    "http://localhost:8000/v1/mcp/execute",
+    json={
+        "tool_name": "filesystem__list_directory",
+        "arguments": {"path": "/home/user/projects"},
+    },
+)
+result = response.json()
+if result["is_error"]:
+    print(f"Error: {result['error_message']}")
+else:
+    print(result["content"])
+```
+
+### Response
+
+<ResponseField name="tool_name" type="string">
+  The name of the tool that was executed.
+</ResponseField>
+
+<ResponseField name="content" type="string | array | object">
+  The result returned by the MCP tool. The type and structure depend on the specific tool; most tools return a string or a list of content blocks.
+</ResponseField>
+
+<ResponseField name="is_error" type="boolean">
+  `true` if the tool execution resulted in an error.
+</ResponseField>
+
+<ResponseField name="error_message" type="string">
+  Error message if `is_error` is `true`, otherwise `null`.
+</ResponseField>
+
+### Example response
+
+```json
+{
+  "tool_name": "filesystem__read_file",
+  "content": "# Meeting Notes\n\nTopics discussed: ...",
+  "is_error": false,
+  "error_message": null
+}
+```
+
+### Error response (MCP not configured)
+
+```json
+{
+  "detail": "MCP not configured. Start server with --mcp-config"
+}
+```
+
+HTTP status: `503 Service Unavailable`.

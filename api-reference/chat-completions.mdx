@@ -1,0 +1,306 @@
+---
+title: "POST /v1/chat/completions"
+description: "OpenAI-compatible chat completions endpoint with SSE streaming, tool calling, structured output, and vision image inputs for VLMs running on Apple Silicon."
+---
+
+The `/v1/chat/completions` endpoint is a drop-in replacement for the OpenAI Chat Completions API. It accepts the same request shape and returns the same response structure, so any client or library built for OpenAI works without modification — just change the base URL. The endpoint supports streaming via SSE, function/tool calling, JSON structured output, reasoning model output, and vision inputs for vision-language models (VLMs).
+
+## Request
+
+**`POST /v1/chat/completions`**
+
+### Parameters
+
+<ParamField body="model" type="string" required>
+  The model name or alias to use. Must match a model discovered in your model directory. You can use either the directory name or the alias configured in per-model settings. Use `GET /v1/models` to list available models.
+</ParamField>
+
+<ParamField body="messages" type="object[]" required>
+  The conversation history as an array of message objects.
+
+  <Expandable title="Message object properties">
+    <ParamField body="role" type="string" required>
+      The role of the message author. One of `"system"`, `"user"`, `"assistant"`, or `"tool"`.
+    </ParamField>
+    <ParamField body="content" type="string | object[]">
+      The message content. Can be a plain string or an array of content parts for multimodal input (text and images).
+    </ParamField>
+    <ParamField body="tool_calls" type="object[]">
+      Tool calls made by the assistant. Present only on `role: "assistant"` messages when the model invoked a tool.
+    </ParamField>
+    <ParamField body="tool_call_id" type="string">
+      The ID of the tool call this message is responding to. Required for `role: "tool"` messages.
+    </ParamField>
+    <ParamField body="name" type="string">
+      Participant name rendered into the chat template. Supported by some model families such as Kimi K2.
+    </ParamField>
+    <ParamField body="reasoning_content" type="string">
+      Explicit reasoning/thinking content from a previous turn (OpenAI `reasoning_content` field). Pass this back to preserve reasoning context across turns.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="stream" type="boolean" default="false">
+  If `true`, the server streams partial message deltas as SSE events (one `data:` line per token). The stream ends with `data: [DONE]`.
+</ParamField>
+
+<ParamField body="stream_options" type="object">
+  Options for streaming responses.
+
+  <Expandable title="stream_options properties">
+    <ParamField body="include_usage" type="boolean" default="false">
+      When `true`, the final SSE chunk includes a `usage` field with token counts, timing metrics, and cache hit statistics.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="temperature" type="number">
+  Sampling temperature. Higher values produce more random output. Overrides the per-model default when set.
+</ParamField>
+
+<ParamField body="top_p" type="number">
+  Nucleus sampling probability cutoff. Only tokens comprising the top `top_p` probability mass are considered.
+</ParamField>
+
+<ParamField body="top_k" type="number">
+  Top-k sampling: restricts sampling to the `top_k` most probable tokens at each step.
+</ParamField>
+
+<ParamField body="min_p" type="number">
+  Minimum probability threshold for token sampling.
+</ParamField>
+
+<ParamField body="max_tokens" type="number">
+  Maximum number of tokens to generate. Defaults to the server's `max_tokens` setting (32768 by default).
+</ParamField>
+
+<ParamField body="stop" type="string | string[]">
+  Stop sequence(s). Generation halts when any of these strings is produced. Accepts a single string or an array.
+</ParamField>
+
+<ParamField body="seed" type="number">
+  Random seed for reproducible outputs. Best-effort: identical seeds on the same hardware produce identical outputs.
+</ParamField>
+
+<ParamField body="tools" type="object[]">
+  List of tools the model may call. Each tool is an object with `type: "function"` and a `function` object containing `name`, `description`, and `parameters` (JSON Schema).
+</ParamField>
+
+<ParamField body="tool_choice" type="string | object" default="auto">
+  Controls when the model calls a tool. `"auto"` lets the model decide, `"none"` disables tools, or pass `{"type": "function", "function": {"name": "my_func"}}` to force a specific tool.
+</ParamField>
+
+<ParamField body="response_format" type="object">
+  Enforce structured output format. Set `type` to `"json_object"` to require valid JSON, or `"json_schema"` with a `json_schema` definition to enforce a specific schema.
+</ParamField>
+
+<ParamField body="structured_outputs" type="object">
+  vLLM-compatible structured output options. Supports `json` (JSON schema), `regex`, `choice`, and `grammar` fields. Pass via `extra_body` in the OpenAI Python client.
+</ParamField>
+
+<ParamField body="chat_template_kwargs" type="object">
+  Extra keyword arguments passed directly to the model's chat template (e.g., `{"enable_thinking": true}`, `{"reasoning_effort": "low"}`).
+</ParamField>
+
+<ParamField body="thinking_budget" type="number">
+  Maximum number of thinking tokens for reasoning models. `null` means unlimited. Applies when the model supports adaptive thinking.
+</ParamField>
+
+<ParamField body="presence_penalty" type="number">
+  Penalty for token presence in the generated text so far. Positive values reduce repetition.
+</ParamField>
+
+<ParamField body="frequency_penalty" type="number">
+  Penalty proportional to token frequency in the generated text so far.
+</ParamField>
+
+<ParamField body="xtc_probability" type="number">
+  XTC (exclude top choices) sampling probability.
+</ParamField>
+
+<ParamField body="xtc_threshold" type="number">
+  XTC sampling probability threshold.
+</ParamField>
+
+## Vision inputs
+
+For vision-language models, pass image content as a content part array in the user message. Both URL and base64 data URIs are accepted:
+
+```json
+{
+  "role": "user",
+  "content": [
+    {"type": "text", "text": "What is in this image?"},
+    {
+      "type": "image_url",
+      "image_url": {
+        "url": "data:image/jpeg;base64,/9j/4AAQSk...",
+        "detail": "auto"
+      }
+    }
+  ]
+}
+```
+
+The `detail` field accepts `"auto"`, `"low"`, or `"high"`.
+
+## Examples
+
+<CodeGroup>
+
+```bash Non-streaming
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "your-model",
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "What is the capital of France?"}
+    ]
+  }'
+```
+
+```bash Streaming
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "your-model",
+    "messages": [{"role": "user", "content": "Write a haiku about the ocean."}],
+    "stream": true,
+    "stream_options": {"include_usage": true}
+  }'
+```
+
+```python OpenAI SDK
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="local")
+
+response = client.chat.completions.create(
+    model="your-model",
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Hello!"}
+    ]
+)
+print(response.choices[0].message.content)
+```
+
+```python Streaming with OpenAI SDK
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="local")
+
+stream = client.chat.completions.create(
+    model="your-model",
+    messages=[{"role": "user", "content": "Tell me a short story."}],
+    stream=True,
+)
+for chunk in stream:
+    if chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="", flush=True)
+```
+
+</CodeGroup>
+
+## Response
+
+<ResponseField name="id" type="string">
+  Unique identifier for the completion, prefixed with `chatcmpl-`.
+</ResponseField>
+
+<ResponseField name="object" type="string">
+  Always `"chat.completion"`.
+</ResponseField>
+
+<ResponseField name="created" type="number">
+  Unix timestamp of when the completion was created.
+</ResponseField>
+
+<ResponseField name="model" type="string">
+  The model that generated the response.
+</ResponseField>
+
+<ResponseField name="choices" type="object[]">
+  Array of completion choices.
+
+  <Expandable title="Choice properties">
+    <ResponseField name="index" type="number">
+      Index of this choice in the array.
+    </ResponseField>
+    <ResponseField name="message" type="object">
+      The assistant message.
+
+      <Expandable title="Message properties">
+        <ResponseField name="role" type="string">
+          Always `"assistant"`.
+        </ResponseField>
+        <ResponseField name="content" type="string">
+          The generated text content. `null` when `tool_calls` is present.
+        </ResponseField>
+        <ResponseField name="reasoning_content" type="string">
+          Thinking/reasoning text produced by reasoning models, extracted from `<think>` blocks.
+        </ResponseField>
+        <ResponseField name="tool_calls" type="object[]">
+          Tool calls requested by the model. Each call has `id`, `type: "function"`, and a `function` object with `name` and `arguments` (JSON string).
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="finish_reason" type="string">
+      Why generation stopped. One of `"stop"`, `"length"`, `"tool_calls"`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="usage" type="object">
+  Token usage and optional timing metrics.
+
+  <Expandable title="Usage properties">
+    <ResponseField name="prompt_tokens" type="number">
+      Number of tokens in the prompt.
+    </ResponseField>
+    <ResponseField name="completion_tokens" type="number">
+      Number of tokens in the generated output.
+    </ResponseField>
+    <ResponseField name="total_tokens" type="number">
+      Sum of prompt and completion tokens.
+    </ResponseField>
+    <ResponseField name="prompt_tokens_details" type="object">
+      Breakdown of prompt tokens, including `cached_tokens` for KV cache hits.
+    </ResponseField>
+    <ResponseField name="time_to_first_token" type="number">
+      Seconds from request receipt to first generated token (oMLX extension).
+    </ResponseField>
+    <ResponseField name="generation_tokens_per_second" type="number">
+      Generation throughput in tokens/second (oMLX extension).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example response
+
+```json
+{
+  "id": "chatcmpl-abc123",
+  "object": "chat.completion",
+  "created": 1746835200,
+  "model": "your-model",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "The capital of France is Paris.",
+        "reasoning_content": null,
+        "tool_calls": null
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 24,
+    "completion_tokens": 9,
+    "total_tokens": 33
+  }
+}
+```

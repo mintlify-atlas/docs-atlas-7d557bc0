@@ -1,0 +1,100 @@
+---
+title: "Tiered KV Cache: Hot RAM and Cold SSD Tiers"
+description: "oMLX uses a block-based KV cache with hot RAM and cold SSD tiers. Cached prefixes survive restarts and are reused across requests without recomputation."
+---
+
+oMLX's KV cache is modeled after vLLM's block pool architecture, adapted for Apple Silicon's unified memory system. Context is stored in fixed-size blocks that can live in two tiers simultaneously: a hot in-memory tier for fast reuse and a cold SSD tier—written in safetensors format—for durable, restart-proof persistence. When a new request arrives whose token prefix matches blocks already on disk, those blocks are registered back into the metadata index on demand and served without any recomputation. This is especially valuable for long-context coding sessions where system prompts and file contents are reused across many turns.
+
+## Architecture Overview
+
+```
+Cache Stack
+├── PagedCacheManager     — block metadata index (RAM), O(1) LRU via doubly-linked list
+├── BlockAwarePrefixCache — chain-hash prefix lookup, Copy-on-Write fork
+├── Hot Cache             — in-memory write-back buffer (optional size cap)
+└── PagedSSDCacheManager  — cold tier on disk (safetensors format, content-addressed)
+```
+
+Each `CacheBlock` holds a fixed number of tokens (`--initial-cache-blocks` controls the starting pool; the pool grows dynamically up to a configurable maximum). Blocks are identified by a **chain hash**: each block's hash is derived from its token content *and* the hash of the preceding block, creating a verifiable prefix chain identical in spirit to vLLM's approach. Model name is included in the hash to isolate caches between different models sharing the same SSD directory.
+
+<Tabs>
+  <Tab title="Hot Cache (RAM)">
+    The hot tier is managed entirely by `PagedCacheManager` using a doubly-linked free queue that provides O(1) LRU eviction. Blocks at the front of the queue are the least recently used and are evicted first when space is needed.
+
+    **Key properties:**
+
+    - Blocks are reference-counted. A block with `ref_count > 1` is *shared* across requests via prefix deduplication; it is Copy-on-Write (CoW) safe.
+    - When a request begins generation on a shared block, `_cow_copy_block()` allocates a fresh block and transfers ownership, leaving the original available for other requests.
+    - The hot cache size is bounded by `--hot-cache-max-size`. Set this to a percentage of RAM (e.g. `20%`) to reserve headroom for model weights and KV generation.
+    - When `--hot-cache-max-size` is omitted, the hot tier is unbounded and grows with demand up to available unified memory.
+
+    ```bash
+    # Reserve 20% of RAM for the hot cache
+    omlx serve --model-dir ~/models \
+               --paged-ssd-cache-dir ~/.omlx/cache \
+               --hot-cache-max-size 20%
+    ```
+  </Tab>
+
+  <Tab title="Cold SSD Cache">
+    The cold tier is managed by `PagedSSDCacheManager`. When blocks are written to disk they are stored as safetensors files, keyed by the block's content hash. Because blocks are content-addressed, the same prefix shared by two different conversations maps to the same on-disk file—no duplication.
+
+    **Lazy restore:** When `PagedCacheManager.get_computed_blocks()` encounters a cache miss in RAM, it checks the SSD index via `has_block(block_hash)`. If the block exists on disk, a new in-memory slot is allocated and registered with `ref_count=0` (metadata-only). The actual KV tensor data is loaded from SSD by `BatchGenerator` only when the request claims the block for inference.
+
+    **Restart survival:** The SSD index is scanned at startup. Any matching prefix presented in a new request will immediately hit the cold cache—there is no warm-up period after a server restart.
+
+    ```bash
+    # Enable the SSD cold tier with a 200 GB cap
+    omlx serve --model-dir ~/models \
+               --paged-ssd-cache-dir ~/.omlx/cache \
+               --paged-ssd-cache-max-size 200GB
+    ```
+
+    <Note>
+      The SSD cache directory is shared across all models. Block hashes include the model name, so blocks from different models never collide.
+    </Note>
+  </Tab>
+</Tabs>
+
+## Prefix Sharing and Copy-on-Write
+
+Two requests that begin with the same system prompt will share all blocks covering that prefix. Shared blocks have `ref_count > 1`. When one request diverges (e.g., a different user message follows), `fork_block_table()` increments the reference count and marks the last block for CoW. On the next generation step, `_cow_copy_block()` transparently duplicates only the diverged block, keeping the shared prefix blocks untouched and available for future requests.
+
+This means a 32 k-token system prompt loaded once stays cached for every concurrent request that uses it—at the cost of a single block allocation per diverging session.
+
+## Configuration Reference
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--paged-ssd-cache-dir` | *(disabled)* | Path for SSD cold tier storage. Enables tiered caching when set. |
+| `--paged-ssd-cache-max-size` | `100GB` | Maximum disk space consumed by the cold tier. |
+| `--hot-cache-max-size` | `0` (disabled cap) | Maximum RAM for the hot in-memory tier. Accepts bytes or percentage (e.g. `20%`). |
+| `--no-cache` | `false` | Disable all KV caching entirely. |
+| `--initial-cache-blocks` | `256` | Number of blocks pre-allocated at startup. The pool grows dynamically. |
+
+## Example: Full Tiered Cache Setup
+
+```bash
+omlx serve \
+  --model-dir ~/models \
+  --paged-ssd-cache-dir ~/.omlx/cache \
+  --paged-ssd-cache-max-size 200GB \
+  --hot-cache-max-size 20%
+```
+
+```bash
+# Disable caching completely (useful for benchmarking raw throughput)
+omlx serve --model-dir ~/models --no-cache
+```
+
+<Tip>
+  For coding assistants like Claude Code that repeatedly send the same large system prompt, enabling the SSD cache with `--hot-cache-max-size 20%` is the single highest-impact configuration change you can make. First-turn latency drops to near-zero after the prefix is warm.
+</Tip>
+
+## How It Survives Restarts
+
+On each request, `get_computed_blocks()` walks the token sequence block by block, computing the expected chain hash. If a block is not in RAM but `PagedSSDCacheManager.has_block(hash)` returns `True`, the block is re-registered in the in-memory index with metadata only—its tensor data remains on disk. The `BatchGenerator` pulls the data from disk during prefill injection. This means cache state built up over hours of usage is never lost when the server restarts or crashes.
+
+<Info>
+  The SSD cache survives not just restarts but also model unloads. If a model is evicted by LRU to free RAM and later reloaded, its entire cached prefix history is immediately available again.
+</Info>

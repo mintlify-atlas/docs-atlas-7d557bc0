@@ -1,0 +1,164 @@
+---
+title: "Vision-Language Models on Apple Silicon"
+description: "oMLX runs VLMs with the same continuous batching and tiered KV cache as text LLMs. Supports multi-image chat, base64/URL/file inputs, and OCR auto-detection."
+---
+
+oMLX runs vision-language models through the same `VLMBatchedEngine` that powers text LLMs, giving VLMs access to the full continuous batching stack and both tiers of the KV cache without any special-casing at the API layer. Images are processed by mlx-vlm's vision encoder, merged with the text embedding sequence, and prefilled into the KV cache as a standard token sequence. After prefill, decoding uses regular token IDs—the visual context lives in cached KV blocks just like any other prompt prefix.
+
+## Supported Models
+
+| Category | Models |
+|---|---|
+| General VLM | Qwen3.5 Series, GLM-4V, Pixtral, and other [mlx-vlm](https://github.com/Blaizzy/mlx-vlm) compatible models |
+| OCR | DeepSeek-OCR, DOTS-OCR, GLM-OCR |
+
+VLM models are auto-detected at startup by inspecting the model directory for vision encoder weights. OCR models are identified by `config_model_type` values like `deepseekocr_2`, `dots_ocr`, and `glm_ocr`.
+
+## OCR Auto-Detection
+
+When an OCR model receives a chat completion request containing an image without an explicit OCR instruction, oMLX injects a model-specific default prompt automatically:
+
+| OCR Model | Default Injected Prompt |
+|---|---|
+| DeepSeek-OCR (v1 & v2) | `Convert the document to markdown.` |
+| DOTS-OCR | `Convert this page to clean Markdown while preserving reading order.` |
+| GLM-OCR | `Text Recognition:` |
+
+OCR models also receive additional stop sequences (`<|user|>`, `<|im_start|>`, etc.) to prevent degenerate output after the transcription ends—a common issue with models that lack proper EOS handling.
+
+## Image Input Formats
+
+All three OpenAI-compatible image URL formats are supported:
+
+<Tabs>
+  <Tab title="Base64">
+    ```json
+    {
+      "type": "image_url",
+      "image_url": {
+        "url": "data:image/jpeg;base64,/9j/4AAQSkZJRgAB..."
+      }
+    }
+    ```
+  </Tab>
+
+  <Tab title="HTTP URL">
+    ```json
+    {
+      "type": "image_url",
+      "image_url": {
+        "url": "https://example.com/diagram.png"
+      }
+    }
+    ```
+  </Tab>
+
+  <Tab title="Local File">
+    ```json
+    {
+      "type": "image_url",
+      "image_url": {
+        "url": "file:///Users/you/screenshots/screenshot.png"
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Multi-Image Chat
+
+A single message can include multiple images. oMLX extracts all image references from the content array, processes them through the vision encoder in order, and merges the resulting embeddings with the surrounding text tokens before prefill.
+
+```json
+{
+  "model": "Qwen3.5-VL-7B-4bit",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        { "type": "text", "text": "Compare these two screenshots:" },
+        { "type": "image_url", "image_url": { "url": "file:///tmp/before.png" } },
+        { "type": "image_url", "image_url": { "url": "file:///tmp/after.png" } },
+        { "type": "text", "text": "What changed between them?" }
+      ]
+    }
+  ]
+}
+```
+
+## Full Example: Chat Completion with an Image
+
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen3.5-VL-7B-4bit",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
+            }
+          },
+          {
+            "type": "text",
+            "text": "Describe what is shown in this diagram."
+          }
+        ]
+      }
+    ],
+    "max_tokens": 512,
+    "stream": true
+  }'
+```
+
+## Tool Calling with Vision Context
+
+VLMs support the same tool calling formats as text LLMs. The vision context (image embeddings) is present in the KV cache throughout the conversation, so tool calls can reference visual content in their arguments:
+
+```json
+{
+  "model": "Qwen3.5-VL-7B-4bit",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        { "type": "image_url", "image_url": { "url": "file:///tmp/chart.png" } },
+        { "type": "text", "text": "Extract the revenue figures from this chart." }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "record_revenue",
+        "description": "Record extracted revenue figures",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "year": { "type": "integer" },
+            "amount_usd": { "type": "number" }
+          },
+          "required": ["year", "amount_usd"]
+        }
+      }
+    }
+  ]
+}
+```
+
+## KV Cache and Continuous Batching
+
+VLM requests use the same tiered KV cache (hot RAM + cold SSD) and continuous batching scheduler as text LLMs. Vision features computed during prefill are stored in KV cache blocks under content-addressed hashes that incorporate the image hash as an `extra_key`. This means:
+
+- The same image appearing in subsequent messages reuses cached vision features without rerunning the vision encoder.
+- Multiple concurrent VLM requests are batched together at the token level by `BatchGenerator`.
+- Long VLM conversations with large images can spill to the SSD cold tier and survive server restarts.
+
+<Note>
+  Model type is auto-detected. If a VLM fails to load via mlx-vlm (e.g., unsupported architecture), oMLX automatically falls back to loading it as a text LLM via mlx-lm and logs a warning.
+</Note>

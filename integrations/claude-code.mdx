@@ -1,0 +1,86 @@
+---
+title: "Use Claude Code with oMLX Local Models"
+description: "Connect the Claude Code CLI to oMLX for fully local agentic coding, with built-in context scaling and SSE keep-alive to prevent timeouts on Apple Silicon."
+---
+
+oMLX includes specific optimizations for Claude Code that address two common pain points when running local models: context compaction timing and request timeouts during long prefill. Once connected, Claude Code sends every request to your local oMLX server instead of Anthropic's API, so your code and conversations stay on-device.
+
+## Claude Code optimizations in oMLX
+
+**Context scaling** — Claude Code's auto-compact feature triggers based on the model's reported context window. Smaller local models often have shorter context limits than Claude's hosted counterparts. oMLX scales the token counts it reports to Claude Code so that auto-compact fires at the right point relative to the model's actual capacity.
+
+**SSE keep-alive** — During long prefill operations (loading a large codebase into context, for example), local inference can take several seconds before the first token is generated. oMLX emits SSE keep-alive events during this gap to prevent Claude Code from timing out before generation begins.
+
+## Connecting Claude Code
+
+<Tabs>
+  <Tab title="Admin dashboard">
+    <Steps>
+      <Step title="Open the Integrations tab">
+        Navigate to `http://localhost:8000/admin` and click **Integrations** in the top navigation.
+      </Step>
+      <Step title="Find Claude Code">
+        Locate the Claude Code card and click the one-click setup button. The dashboard fetches your loaded models and writes the required environment variables automatically.
+      </Step>
+      <Step title="Select a model">
+        Choose the model you want Claude Code to use from the dropdown. Coding-optimized models such as Qwen3-Coder-Next-8bit work well.
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="CLI">
+    <Steps>
+      <Step title="Start oMLX">
+        Make sure the server is running with at least one model loaded:
+        ```bash
+        omlx serve --model-dir ~/models
+        ```
+      </Step>
+      <Step title="Launch Claude Code">
+        ```bash
+        omlx launch claude --model Qwen3-Coder-Next-8bit
+        ```
+        If you omit `--model`, an interactive picker lets you choose from all available models.
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+## What the launch command does
+
+`omlx launch claude` configures the following environment variables before exec-ing the `claude` binary:
+
+| Variable | Value | Purpose |
+|---|---|---|
+| `ANTHROPIC_BASE_URL` | `http://localhost:8000` | Points Claude Code at your oMLX server |
+| `ANTHROPIC_AUTH_TOKEN` | your API key, or `"omlx"` | Authenticates with oMLX |
+| `ANTHROPIC_API_KEY` | _(empty)_ | Prevents Claude Code from using a real Anthropic key |
+| `ANTHROPIC_DEFAULT_OPUS_MODEL` | selected model | Routes all Claude tiers to your local model |
+| `ANTHROPIC_DEFAULT_SONNET_MODEL` | selected model | Routes all Claude tiers to your local model |
+| `ANTHROPIC_DEFAULT_HAIKU_MODEL` | selected model | Routes all Claude tiers to your local model |
+| `CLAUDE_CODE_SUBAGENT_MODEL` | selected model | Ensures sub-agents also use your local model |
+| `API_TIMEOUT_MS` | `3000000` | Extended timeout for local model inference |
+| `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | `1` | Disables telemetry and background requests |
+
+## API key
+
+If your oMLX server has no API key configured (the default), any non-empty string works as the auth token. `omlx launch claude` uses `"omlx"` as the fallback. If you started oMLX with `--api-key your-secret`, that key is used automatically.
+
+## Endpoint and port
+
+The default endpoint is `http://localhost:8000`. If you started oMLX on a different host or port, pass `--host` and `--port` to the launch command:
+
+```bash
+omlx launch claude --model Qwen3-Coder-Next-8bit --port 8080
+```
+
+## Installing Claude Code
+
+If `claude` is not yet installed:
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+<Tip>
+Coding-optimized models like Qwen3-Coder-Next-8bit or similar code-focused variants give the best results with Claude Code's agentic workflows. Any LLM or VLM loaded in oMLX will work, but models fine-tuned on code handle tool use and multi-step edits more reliably.
+</Tip>

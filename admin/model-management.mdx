@@ -1,0 +1,100 @@
+---
+title: "Managing Models in the Admin Dashboard"
+description: "Load, unload, pin, download, and configure per-model sampling parameters and metadata through the oMLX web UI without restarting the server."
+---
+
+The Models tab in the oMLX Admin Dashboard is the primary interface for controlling which models are in memory and how they behave. Every action — loading, unloading, pinning, configuring — takes effect immediately, and all settings persist across server restarts in `~/.omlx/model_settings.json`.
+
+## Model status badges
+
+Each model in the list has a status badge indicating whether it is currently loaded or unloaded. Click the badge to toggle:
+
+- **Loaded** — the model is in memory and ready to serve requests. Click to unload.
+- **Unloaded** — the model is available on disk but not in memory. Click to load.
+
+LRU eviction runs automatically when total memory usage approaches the configured limit (default: system RAM minus 8 GB). The least-recently-used model is unloaded to make room for an incoming request.
+
+## Pinning models
+
+Click the pin icon next to any loaded model to mark it as pinned. Pinned models are excluded from LRU eviction and remain loaded until you manually unload them or remove the pin. Use pinning for models you use constantly — small chat models, embedding models, or rerankers — so they are never swapped out during heavy workloads.
+
+## Model downloader
+
+The downloader is accessible from the Models tab. Enter a model name or search query to find MLX-format models on HuggingFace. The panel shows the model card, file sizes, and quantization details before you commit to a download. Click **Download** to pull the model into your configured model directory.
+
+<Note>
+Downloaded models appear in the model list automatically once the download completes. No server restart is required.
+</Note>
+
+## Per-model settings
+
+Open the settings panel for any model by clicking its name. All fields apply immediately without a server restart.
+
+### Sampling parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `max_tokens` | Maximum output tokens per request. Overrides the global default. |
+| `temperature` | Sampling temperature. Higher values increase randomness. |
+| `top_p` | Nucleus sampling probability cutoff. |
+| `top_k` | Limit the next-token selection to the top K candidates. |
+| `min_p` | Minimum probability threshold for nucleus sampling. |
+| `repetition_penalty` | Penalise repeated tokens. `1.0` disables the penalty. |
+| `presence_penalty` | Penalise tokens that have already appeared in the output. |
+| `max_context_window` | Reject requests whose prompt exceeds this token count. |
+
+### Chat template kwargs
+
+`chat_template_kwargs` passes extra keyword arguments to the model's Jinja2 chat template. This is useful for models that expose template-level toggles — for example, enabling thinking mode or disabling system prompt injection. You can also mark specific keys as `forced_ct_kwargs` so API callers cannot override them.
+
+### TTL (idle timeout)
+
+Set `ttl_seconds` to automatically unload a model after it has been idle for that many seconds. This is useful for large models that you only use occasionally — they load on demand and free memory after inactivity.
+
+### Model alias
+
+`model_alias` sets a custom API-visible name for the model. When an alias is set:
+
+- `GET /v1/models` returns the alias instead of the directory name.
+- Requests accept **both** the alias and the original directory name.
+
+This lets you pin a stable name like `my-coder` to a model directory that might change between quantization updates.
+
+### Model type override
+
+oMLX auto-detects whether a model is an LLM, VLM, embedding model, or reranker. If auto-detection produces the wrong result, use `model_type_override` to manually set the type. Valid values are `llm`, `vlm`, `embedding`, and `reranker`.
+
+## Testing models with built-in chat
+
+Any loaded model can be tested directly from the dashboard without leaving your browser. The chat UI supports:
+
+- Full conversation history
+- Mid-conversation model switching
+- Image upload for VLMs and OCR models
+- Reasoning model output (thinking blocks rendered separately)
+- Dark mode
+
+## Serving stats
+
+The dashboard displays per-model serving statistics — total requests, prompt tokens, completion tokens, cached tokens, average prefill TPS, and average generation TPS. These stats have two scopes:
+
+- **Session** — counters since the server last started.
+- **All-time** — counters persisted across restarts to `~/.omlx/stats.json`.
+
+<Steps>
+  <Step title="Open the Admin Dashboard">
+    Navigate to `http://localhost:8000/admin` in your browser.
+  </Step>
+  <Step title="Go to the Models tab">
+    Click **Models** in the top navigation.
+  </Step>
+  <Step title="Load a model">
+    Click the **Unloaded** badge next to the model you want to load. The badge turns green when the model is ready.
+  </Step>
+  <Step title="Configure settings">
+    Click the model name to open the settings panel. Adjust sampling parameters, TTL, alias, or model type, then click **Save**.
+  </Step>
+  <Step title="Test with chat">
+    Click **Chat** in the navigation, select your model from the dropdown, and start a conversation.
+  </Step>
+</Steps>

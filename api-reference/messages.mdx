@@ -1,0 +1,262 @@
+---
+title: "POST /v1/messages — Anthropic API"
+description: "Drop-in replacement for the Anthropic Messages API. Supports adaptive thinking, tool use, vision inputs, and token counting via /v1/messages/count_tokens."
+---
+
+The `/v1/messages` endpoint is a drop-in replacement for the Anthropic Messages API (`POST https://api.anthropic.com/v1/messages`). It accepts the same request and response structure as the official Anthropic API, so the official `anthropic` Python SDK and any other Anthropic-compatible client works by changing only the `base_url`. oMLX supports adaptive thinking/reasoning, tool use, multi-image vision inputs, and SSE streaming using Anthropic's event schema.
+
+## Request
+
+**`POST /v1/messages`**
+
+### Parameters
+
+<ParamField body="model" type="string" required>
+  The model name or alias to use. Accepts any model discovered in your model directory. Use `GET /v1/models` to list available models.
+</ParamField>
+
+<ParamField body="messages" type="object[]" required>
+  The conversation history. Each message has a `role` of `"user"` or `"assistant"`, and `content` as either a plain string or an array of content blocks.
+
+  <Expandable title="Content block types">
+    <ResponseField name="type: text" type="object">
+      Plain text: `{"type": "text", "text": "Hello"}`.
+    </ResponseField>
+    <ResponseField name="type: image" type="object">
+      Image input: `{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "..."}}` or `{"type": "image", "source": {"type": "url", "url": "https://..."}}`.
+    </ResponseField>
+    <ResponseField name="type: tool_use" type="object">
+      Tool invocation by the assistant with `id`, `name`, and `input`.
+    </ResponseField>
+    <ResponseField name="type: tool_result" type="object">
+      Tool output provided by the user with `tool_use_id` and `content`.
+    </ResponseField>
+    <ResponseField name="type: thinking" type="object">
+      Reasoning content block from a previous assistant turn with `thinking` and optional `signature`.
+    </ResponseField>
+    <ResponseField name="type: document" type="object">
+      Document content (PDF or plain text) with `source`, optional `title`, and `context`.
+    </ResponseField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="max_tokens" type="number" required>
+  Maximum number of output tokens to generate.
+</ParamField>
+
+<ParamField body="system" type="string | object[]">
+  System prompt. Accepts a plain string or an array of `SystemContent` blocks (each with `type: "text"`, `text`, and optional `cache_control`).
+</ParamField>
+
+<ParamField body="stream" type="boolean" default="false">
+  If `true`, the server streams response events using Anthropic's SSE schema: `message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, and `message_stop`.
+</ParamField>
+
+<ParamField body="temperature" type="number">
+  Sampling temperature for generation.
+</ParamField>
+
+<ParamField body="top_p" type="number">
+  Nucleus sampling cutoff probability.
+</ParamField>
+
+<ParamField body="top_k" type="number">
+  Top-k sampling limit.
+</ParamField>
+
+<ParamField body="stop_sequences" type="string[]">
+  List of stop strings. Generation halts when any sequence is produced.
+</ParamField>
+
+<ParamField body="tools" type="object[]">
+  Tool definitions available to the model. Each tool has `name`, optional `description`, and `input_schema` (JSON Schema). Anthropic server-side tool types (e.g., `web_search_20250305`) are accepted for client compatibility but dropped before inference since oMLX cannot execute them locally.
+</ParamField>
+
+<ParamField body="tool_choice" type="object">
+  Controls tool selection. `{"type": "auto"}` lets the model decide, `{"type": "any"}` forces a tool call, or `{"type": "tool", "name": "my_tool"}` forces a specific tool.
+</ParamField>
+
+<ParamField body="thinking" type="object">
+  Configure adaptive thinking/reasoning.
+
+  <Expandable title="thinking properties">
+    <ParamField body="type" type="string">
+      One of `"enabled"`, `"disabled"`, or `"adaptive"`.
+    </ParamField>
+    <ParamField body="budget_tokens" type="number">
+      Maximum thinking tokens. Applies when `type` is `"enabled"` or `"adaptive"`.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="chat_template_kwargs" type="object">
+  Extra keyword arguments passed directly to the model's chat template (e.g., `{"enable_thinking": true}`).
+</ParamField>
+
+<ParamField body="metadata" type="object">
+  Optional metadata for the request. Accepted for API compatibility; not used by the server.
+</ParamField>
+
+## Token counting
+
+To count tokens without generating a response, send a request to:
+
+**`POST /v1/messages/count_tokens`**
+
+The request body accepts the same fields as `/v1/messages` (minus `stream`, `temperature`, etc.) and returns:
+
+```json
+{
+  "input_tokens": 142
+}
+```
+
+## Examples
+
+<CodeGroup>
+
+```bash cURL
+curl http://localhost:8000/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: your-secret-key" \
+  -d '{
+    "model": "your-model",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "Explain quantum entanglement simply."}
+    ]
+  }'
+```
+
+```python Anthropic SDK
+import anthropic
+
+client = anthropic.Anthropic(
+    base_url="http://localhost:8000",
+    api_key="local",
+)
+
+message = client.messages.create(
+    model="your-model",
+    max_tokens=1024,
+    messages=[
+        {"role": "user", "content": "Hello, how are you?"}
+    ]
+)
+print(message.content[0].text)
+```
+
+```python Streaming
+import anthropic
+
+client = anthropic.Anthropic(
+    base_url="http://localhost:8000",
+    api_key="local",
+)
+
+with client.messages.stream(
+    model="your-model",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Write a poem about the sea."}],
+) as stream:
+    for text in stream.text_stream:
+        print(text, end="", flush=True)
+```
+
+```python Adaptive thinking
+import anthropic
+
+client = anthropic.Anthropic(
+    base_url="http://localhost:8000",
+    api_key="local",
+)
+
+message = client.messages.create(
+    model="your-reasoning-model",
+    max_tokens=8000,
+    thinking={"type": "enabled", "budget_tokens": 4000},
+    messages=[{"role": "user", "content": "Solve: If 2x + 5 = 17, what is x?"}],
+)
+for block in message.content:
+    if block.type == "thinking":
+        print(f"<thinking>{block.thinking}</thinking>")
+    elif block.type == "text":
+        print(block.text)
+```
+
+</CodeGroup>
+
+## Response
+
+<ResponseField name="id" type="string">
+  Unique identifier for the message, prefixed with `msg_`.
+</ResponseField>
+
+<ResponseField name="type" type="string">
+  Always `"message"`.
+</ResponseField>
+
+<ResponseField name="role" type="string">
+  Always `"assistant"`.
+</ResponseField>
+
+<ResponseField name="model" type="string">
+  The model that generated the response.
+</ResponseField>
+
+<ResponseField name="content" type="object[]">
+  Array of content blocks. Each block has a `type` field:
+  - `text`: contains `text` string
+  - `tool_use`: contains `id`, `name`, and `input`
+  - `thinking`: contains `thinking` string (reasoning models only)
+</ResponseField>
+
+<ResponseField name="stop_reason" type="string">
+  Why generation stopped: `"end_turn"`, `"max_tokens"`, `"stop_sequence"`, or `"tool_use"`.
+</ResponseField>
+
+<ResponseField name="stop_sequence" type="string">
+  The stop sequence that triggered the halt, if applicable.
+</ResponseField>
+
+<ResponseField name="usage" type="object">
+  <Expandable title="Usage properties">
+    <ResponseField name="input_tokens" type="number">
+      Tokens in the prompt.
+    </ResponseField>
+    <ResponseField name="output_tokens" type="number">
+      Tokens in the generated response.
+    </ResponseField>
+    <ResponseField name="cache_creation_input_tokens" type="number">
+      Tokens written to cache (always 0 in oMLX; present for API compatibility).
+    </ResponseField>
+    <ResponseField name="cache_read_input_tokens" type="number">
+      Tokens read from cache (always 0 in oMLX; present for API compatibility).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example response
+
+```json
+{
+  "id": "msg_abc123",
+  "type": "message",
+  "role": "assistant",
+  "model": "your-model",
+  "content": [
+    {
+      "type": "text",
+      "text": "Quantum entanglement is a phenomenon where two particles become linked..."
+    }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 18,
+    "output_tokens": 64,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0
+  }
+}
+```

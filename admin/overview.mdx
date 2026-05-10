@@ -1,0 +1,45 @@
+---
+title: "oMLX Admin Dashboard Overview"
+description: "The oMLX web UI at /admin provides real-time monitoring, model management, built-in chat, benchmarks, and coding tool integrations — runs fully offline."
+---
+
+The oMLX Admin Dashboard is a fully self-contained web interface that gives you complete visibility and control over your local LLM server without ever touching the command line. It runs at `http://localhost:8000/admin` the moment the server starts, and because all CDN dependencies are vendored locally, it works entirely offline. The dashboard is available in English, Korean, Japanese, Chinese, and Russian.
+
+## Sections
+
+### Status and monitoring
+
+The Status tab shows real-time server metrics: memory usage, request counts, average prefill throughput (PP tok/s), average generation throughput (TG tok/s), cache efficiency, and per-model breakdowns. Metrics are split into session (since last server start) and all-time (persisted across restarts).
+
+### Model management
+
+The Models tab lists every model discovered in your model directory. Status badges show whether each model is loaded or unloaded — click a badge to load or unload on demand. You can pin a model to keep it always in memory, set an idle TTL to auto-unload it after inactivity, and configure per-model sampling parameters without restarting the server.
+
+The built-in model downloader lets you search HuggingFace, browse model cards, check file sizes, and download MLX models with one click.
+
+### Chat
+
+The Chat section lets you talk directly with any loaded model from your browser. It supports conversation history, mid-conversation model switching, dark mode, reasoning model output, and image upload for VLM and OCR models.
+
+### Benchmarks
+
+The Benchmark tab runs one-click prefill (PP) and generation (TG) throughput tests against any loaded model. Results include partial prefix cache hit testing for realistic, cache-aware numbers. See [Benchmarking Models](/admin/benchmarks) for details.
+
+### Integrations
+
+The Integrations tab sets up Claude Code, Codex, OpenClaw, and Pi with a single click — no manual config editing required.
+
+### Settings
+
+The Settings panel exposes global server configuration (max memory, concurrency, API key, HuggingFace mirror endpoint, and more). Most changes apply immediately without a server restart.
+
+## Navigation
+
+<CardGroup cols={2}>
+  <Card title="Model management" icon="layers" href="/admin/model-management">
+    Load, pin, download, and configure models from the dashboard.
+  </Card>
+  <Card title="Benchmarks" icon="gauge" href="/admin/benchmarks">
+    Run PP and TG throughput benchmarks and interpret the results.
+  </Card>
+</CardGroup>

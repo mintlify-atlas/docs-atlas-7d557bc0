@@ -1,28 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "oMLX",
+  "projectType": "saas",
+  "projectName": "oMLX",
+  "projectDescription": "A local LLM inference server with continuous batching and tiered KV caching for Apple Silicon, managed from the macOS menu bar with a built-in web admin dashboard.",
   "theme": "luma",
-  "colors": {
-    "primary": "#8c8c8c",
-    "light": "#242424",
-    "dark": "#cdcdcd"
-  },
-  "favicon": "https://media.brand.dev/e0f45a66-5dda-4f6c-b183-e04a5e4600da.svg",
-  "logo": {
-    "light": "https://media.brand.dev/caff2697-dc84-446c-97f4-7d60e6aae0a5.svg",
-    "dark": "https://media.brand.dev/caff2697-dc84-446c-97f4-7d60e6aae0a5.svg"
-  },
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/jundot/omlx"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/jundot/omlx"
-    }
-  },
+  "primaryColor": "#8c8c8c",
+  "lightColor": "#242424",
+  "darkColor": "#cdcdcd",
   "navigation": {
     "tabs": [
       {
@@ -103,5 +86,33 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "Tiered KV cache with hot (RAM) and cold (SSD) tiers using block-based paged cache management",
+    "Continuous batching via mlx-lm BatchGenerator for high-concurrency inference",
+    "Multi-model serving with LRU eviction, model pinning, and per-model TTL",
+    "Vision-language model (VLM) support with multi-image inputs and tool calling",
+    "OpenAI and Anthropic API compatibility as a drop-in replacement",
+    "macOS menubar app for managing the server without a terminal",
+    "Built-in web admin dashboard with chat UI, model downloader, and benchmarks",
+    "MCP (Model Context Protocol) tool integration",
+    "One-click integrations for Claude Code, Codex, OpenClaw, and Pi",
+    "Audio support (TTS, STT, STS) via mlx-audio"
+  ],
+  "publicApiSurface": [
+    "POST /v1/chat/completions — OpenAI-compatible chat completions with streaming",
+    "POST /v1/completions — Text completions with streaming",
+    "POST /v1/messages — Anthropic Messages API",
+    "POST /v1/responses — OpenAI Responses API (Codex compatibility)",
+    "POST /v1/embeddings — Text embeddings",
+    "POST /v1/rerank — Document reranking",
+    "GET /v1/models — List available models with load status",
+    "GET /health — Health check",
+    "GET /v1/mcp/tools — List MCP tools",
+    "GET /v1/mcp/servers — MCP server status",
+    "POST /v1/mcp/execute — Execute MCP tool",
+    "omlx serve — Start the multi-model inference server",
+    "omlx launch <tool> — Launch an external tool with oMLX integration",
+    "omlx diagnose menubar — Diagnose menubar visibility issues"
+  ]
 }

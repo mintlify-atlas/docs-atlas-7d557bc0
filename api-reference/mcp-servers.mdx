@@ -1,0 +1,126 @@
+---
+title: "GET /v1/mcp/servers — MCP Server Status"
+description: "GET /v1/mcp/servers returns the runtime status of every MCP server configured in oMLX — connection state, transport, tool count, and any errors."
+---
+
+The `/v1/mcp/servers` endpoint reports the runtime status of every MCP server that oMLX is configured to connect to. Use this endpoint to verify that your MCP servers started successfully, identify connection errors, and confirm how many tools each server exposes. It is particularly useful for debugging MCP configuration issues without digging through server logs.
+
+<Note>
+  This endpoint requires oMLX to be started with `--mcp-config /path/to/mcp.json`. Without this flag, the endpoint returns an empty server list rather than an error.
+</Note>
+
+## Get MCP server status
+
+**`GET /v1/mcp/servers`**
+
+### Example
+
+```bash
+curl http://localhost:8000/v1/mcp/servers
+```
+
+### Response
+
+<ResponseField name="servers" type="object[]">
+  Array of MCP server status objects, one per server defined in the MCP config file.
+
+  <Expandable title="Server status properties">
+    <ResponseField name="name" type="string">
+      The name of the MCP server, as defined in your MCP configuration file.
+    </ResponseField>
+    <ResponseField name="state" type="string">
+      Current connection state of the server. Common values: `"connected"`, `"connecting"`, `"disconnected"`, `"error"`.
+    </ResponseField>
+    <ResponseField name="transport" type="string">
+      The transport type used to communicate with this server. Common values: `"stdio"`, `"sse"`, `"websocket"`.
+    </ResponseField>
+    <ResponseField name="tools_count" type="number">
+      Number of tools currently available from this server. `0` when the server is not connected.
+    </ResponseField>
+    <ResponseField name="error" type="string">
+      Error message if the server failed to connect, otherwise `null`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example response (all connected)
+
+```json
+{
+  "servers": [
+    {
+      "name": "filesystem",
+      "state": "connected",
+      "transport": "stdio",
+      "tools_count": 8,
+      "error": null
+    },
+    {
+      "name": "fetch",
+      "state": "connected",
+      "transport": "stdio",
+      "tools_count": 1,
+      "error": null
+    }
+  ]
+}
+```
+
+### Example response (one server failed)
+
+```json
+{
+  "servers": [
+    {
+      "name": "filesystem",
+      "state": "connected",
+      "transport": "stdio",
+      "tools_count": 8,
+      "error": null
+    },
+    {
+      "name": "my-db-server",
+      "state": "error",
+      "transport": "sse",
+      "tools_count": 0,
+      "error": "Connection refused: http://localhost:9000/sse"
+    }
+  ]
+}
+```
+
+### Example response (MCP not configured)
+
+```json
+{
+  "servers": []
+}
+```
+
+## MCP configuration
+
+The MCP config file passed to `--mcp-config` uses oMLX's own configuration format with a top-level `servers` key. Here is a minimal example for a filesystem server:
+
+```json
+{
+  "servers": {
+    "filesystem": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"],
+      "enabled": true,
+      "timeout": 30
+    }
+  },
+  "max_tool_calls": 10,
+  "default_timeout": 30.0
+}
+```
+
+Start the server with:
+
+```bash
+omlx serve --model-dir ~/models --mcp-config ~/mcp.json
+```
+
+See [GET /v1/mcp/tools and POST /v1/mcp/execute](/api-reference/mcp-tools) to list and execute the tools exposed by connected servers.

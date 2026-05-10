@@ -1,0 +1,156 @@
+---
+title: "Launch Codex, OpenClaw, and Pi with oMLX"
+description: "Use omlx launch to connect Codex, OpenClaw, Pi, and OpenCode to your local inference server with automatic config writing and interactive model selection."
+---
+
+The `omlx launch` command handles the full setup-and-start workflow for external coding tools: it writes the tool's config file, sets the correct API endpoint and key, and then replaces the current process with the tool binary. All you need is a running oMLX server and the tool installed on your system.
+
+## How omlx launch works
+
+When you run `omlx launch <tool>`, oMLX:
+
+1. Verifies the oMLX server is reachable at the configured host and port.
+2. Fetches available models from `/v1/models`.
+3. If `--model` is not specified, presents an interactive model picker (arrow keys, Enter to confirm).
+4. Writes or updates the tool's config file with the oMLX endpoint, API key, and selected model.
+5. Exec's the tool binary, replacing the current process.
+
+```bash
+# Interactive model selection
+omlx launch codex
+
+# Specify model directly
+omlx launch codex --model Qwen3-Coder-Next-8bit
+
+# Custom host and port
+omlx launch codex --model Qwen3-Coder-Next-8bit --host 0.0.0.0 --port 8080
+```
+
+## Codex
+
+Codex integration writes `~/.codex/config.toml`, adding oMLX as a named model provider and setting it as the active model. If the selected model name contains a reasoning hint (`thinking`, `o1`, `o3`, or `r1`), `model_reasoning_effort = "high"` is added automatically.
+
+```bash
+omlx launch codex --model Qwen3-Coder-Next-8bit
+```
+
+The resulting config section looks like:
+
+```toml
+model = "Qwen3-Coder-Next-8bit"
+model_provider = "omlx"
+
+[model_providers.omlx]
+name = "oMLX"
+base_url = "http://127.0.0.1:8000/v1"
+env_key = "OMLX_API_KEY"
+```
+
+The `OMLX_API_KEY` environment variable is set to your oMLX API key (or `"omlx"` if no key is configured) before launching.
+
+<Info>
+If Codex is not installed: `npm install -g @openai/codex`
+</Info>
+
+## OpenClaw
+
+OpenClaw integration writes `~/.openclaw/openclaw.json` with an `omlx` provider block and sets it as the default model. It also configures `~/.openclaw/exec-approvals.json` based on the tools profile you choose.
+
+```bash
+# Default tools profile (coding)
+omlx launch openclaw --model Qwen3-Coder-Next-8bit
+
+# Choose a different tools profile
+omlx launch openclaw --model Qwen3-Coder-Next-8bit --tools-profile full
+```
+
+### Tools profiles
+
+The `--tools-profile` flag controls OpenClaw's exec approval policy:
+
+| Profile | Exec policy | Ask behavior |
+|---|---|---|
+| `minimal` | allowlist | Prompt on miss |
+| `coding` | unrestricted | Off (default) |
+| `messaging` | allowlist | Prompt on miss |
+| `full` | unrestricted | Off |
+
+If OpenClaw has not been onboarded yet, `omlx launch openclaw` runs the non-interactive onboarding step automatically before writing the config.
+
+<Info>
+If OpenClaw is not installed: `npm install -g openclaw`
+</Info>
+
+## Pi
+
+Pi integration writes two files: `~/.pi/agent/models.json` (provider and model definition) and `~/.pi/agent/settings.json` (default provider and model selection). VLM models are configured with image input support automatically.
+
+```bash
+omlx launch pi --model Qwen3-Coder-Next-8bit
+```
+
+Pi is launched with the model pre-selected:
+
+```bash
+pi --model omlx/Qwen3-Coder-Next-8bit
+```
+
+<Info>
+If Pi is not installed: `npm install -g @mariozechner/pi-coding-agent`
+</Info>
+
+## OpenCode
+
+OpenCode integration writes a provider entry to `~/.config/opencode/opencode.json` using the `@ai-sdk/openai-compatible` npm package. The selected model is set as the default in the config, and VLM models are configured with image attachment support.
+
+```bash
+omlx launch opencode --model Qwen3-Coder-Next-8bit
+```
+
+The resulting provider block:
+
+```json
+{
+  "provider": {
+    "omlx": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "oMLX",
+      "options": {
+        "baseURL": "http://127.0.0.1:8000/v1"
+      },
+      "models": {
+        "Qwen3-Coder-Next-8bit": {
+          "name": "Qwen3-Coder-Next-8bit",
+          "modalities": { "input": ["text"], "output": ["text"] }
+        }
+      }
+    }
+  },
+  "model": "omlx/Qwen3-Coder-Next-8bit"
+}
+```
+
+<Info>
+If OpenCode is not installed: `curl -fsSL https://opencode.ai/install | bash`
+</Info>
+
+## Checking installed tools
+
+Run `omlx launch list` to see every integration and whether the required binary is on your `PATH`:
+
+```bash
+omlx launch list
+```
+
+```
+Available integrations:
+  claude       Claude Code (installed)
+  codex        Codex (installed)
+  openclaw     OpenClaw (not installed)
+  pi           Pi (not installed)
+  opencode     OpenCode (installed)
+```
+
+## Admin dashboard alternative
+
+All integrations are also accessible from the **Integrations** tab in the admin dashboard at `http://localhost:8000/admin`. The dashboard provides the same one-click setup without needing a terminal.

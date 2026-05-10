@@ -1,0 +1,186 @@
+---
+title: "POST /v1/completions"
+description: "OpenAI-compatible text completions endpoint for raw prompt completion without chat formatting, supporting streaming and all standard sampling parameters."
+---
+
+The `/v1/completions` endpoint provides raw text completion — you supply a prompt string and the model continues it. Unlike chat completions, there is no message formatting or chat template applied; the prompt is passed directly to the model. This is the right endpoint for legacy pipelines, fill-in-the-middle tasks, or any case where you want precise control over the exact text fed to the model.
+
+## Request
+
+**`POST /v1/completions`**
+
+### Parameters
+
+<ParamField body="model" type="string" required>
+  The model name or alias to use. Use `GET /v1/models` to list available models.
+</ParamField>
+
+<ParamField body="prompt" type="string | string[]" required>
+  The prompt(s) to complete. Accepts a single string or a list of strings. When a list is provided, each prompt is completed independently.
+</ParamField>
+
+<ParamField body="stream" type="boolean" default="false">
+  If `true`, the server streams partial token deltas as SSE events. The stream ends with `data: [DONE]`.
+</ParamField>
+
+<ParamField body="stream_options" type="object">
+  <Expandable title="stream_options properties">
+    <ParamField body="include_usage" type="boolean" default="false">
+      Include token usage statistics on the final SSE chunk.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="max_tokens" type="number">
+  Maximum number of tokens to generate. Defaults to the server's `max_tokens` setting.
+</ParamField>
+
+<ParamField body="temperature" type="number">
+  Sampling temperature. Higher values produce more varied output.
+</ParamField>
+
+<ParamField body="top_p" type="number">
+  Nucleus sampling cutoff. Only the top probability mass summing to `top_p` is sampled.
+</ParamField>
+
+<ParamField body="min_p" type="number">
+  Minimum probability threshold for sampling.
+</ParamField>
+
+<ParamField body="stop" type="string | string[]">
+  Stop sequence(s). Generation halts when any sequence is produced.
+</ParamField>
+
+<ParamField body="seed" type="number">
+  Seed for reproducible generation. Best-effort on Apple Silicon.
+</ParamField>
+
+<ParamField body="presence_penalty" type="number">
+  Penalty for tokens already present in the output.
+</ParamField>
+
+<ParamField body="frequency_penalty" type="number">
+  Penalty proportional to token frequency in the output so far.
+</ParamField>
+
+<ParamField body="xtc_probability" type="number">
+  XTC (exclude top choices) sampling probability.
+</ParamField>
+
+<ParamField body="xtc_threshold" type="number">
+  XTC sampling probability threshold.
+</ParamField>
+
+## Examples
+
+<CodeGroup>
+
+```bash cURL
+curl http://localhost:8000/v1/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "your-model",
+    "prompt": "The quick brown fox",
+    "max_tokens": 50,
+    "temperature": 0.7
+  }'
+```
+
+```bash Streaming
+curl http://localhost:8000/v1/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "your-model",
+    "prompt": "Once upon a time",
+    "max_tokens": 200,
+    "stream": true
+  }'
+```
+
+```python OpenAI SDK
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="local")
+
+response = client.completions.create(
+    model="your-model",
+    prompt="The Eiffel Tower is located in",
+    max_tokens=20,
+)
+print(response.choices[0].text)
+```
+
+</CodeGroup>
+
+## Response
+
+<ResponseField name="id" type="string">
+  Unique identifier for the completion, prefixed with `cmpl-`.
+</ResponseField>
+
+<ResponseField name="object" type="string">
+  Always `"text_completion"`.
+</ResponseField>
+
+<ResponseField name="created" type="number">
+  Unix timestamp of when the completion was created.
+</ResponseField>
+
+<ResponseField name="model" type="string">
+  The model that generated the completion.
+</ResponseField>
+
+<ResponseField name="choices" type="object[]">
+  Array of completion choices, one per prompt.
+
+  <Expandable title="Choice properties">
+    <ResponseField name="index" type="number">
+      Index of this choice.
+    </ResponseField>
+    <ResponseField name="text" type="string">
+      The generated text continuation.
+    </ResponseField>
+    <ResponseField name="finish_reason" type="string">
+      Why generation stopped: `"stop"` (natural end or stop sequence hit) or `"length"` (max tokens reached).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="usage" type="object">
+  Token usage statistics.
+
+  <Expandable title="Usage properties">
+    <ResponseField name="prompt_tokens" type="number">
+      Tokens in the prompt.
+    </ResponseField>
+    <ResponseField name="completion_tokens" type="number">
+      Tokens in the generated text.
+    </ResponseField>
+    <ResponseField name="total_tokens" type="number">
+      Total tokens consumed.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example response
+
+```json
+{
+  "id": "cmpl-abc123",
+  "object": "text_completion",
+  "created": 1746835200,
+  "model": "your-model",
+  "choices": [
+    {
+      "index": 0,
+      "text": " jumps over the lazy dog near the old oak tree.",
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 5,
+    "completion_tokens": 12,
+    "total_tokens": 17
+  }
+}
+```

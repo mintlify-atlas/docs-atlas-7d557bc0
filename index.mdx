@@ -1,133 +1,78 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
-icon: 'star'
+title: "oMLX: LLM Inference Optimized for Apple Silicon"
+description: "Run local LLMs on your Mac with continuous batching, tiered KV caching, and a native macOS menu bar app. OpenAI-compatible API included."
 ---
 
-## Setting up
+oMLX is a local LLM inference server built specifically for Apple Silicon. It combines continuous batching, a two-tier KV cache (RAM + SSD), and an OpenAI-compatible API — all managed from a native macOS menu bar app or a simple CLI command. Whether you're running coding agents or experimenting with large models, oMLX keeps your most-used models hot in memory and handles the rest automatically.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install via macOS DMG, Homebrew, or from source. Up and running in minutes.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Start the server, load a model, and make your first API call.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="API Reference" icon="code" href="/api-reference/overview">
+    Drop-in OpenAI and Anthropic API compatibility. Chat, completions, embeddings, and more.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Integrations" icon="plug" href="/integrations/overview">
+    Connect Claude Code, Codex, OpenClaw, and Pi with one click.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Why oMLX?
 
-Everything you need to create world-class documentation.
+oMLX solves the real pain of running local LLMs for serious development work. Most local inference servers make you choose between convenience and control — oMLX gives you both.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
+<CardGroup cols={2}>
+  <Card title="Tiered KV Cache" icon="database" href="/features/kv-cache">
+    Hot RAM tier plus cold SSD tier. Context survives restarts and is reused across requests — no recomputation.
   </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
+  <Card title="Multi-Model Serving" icon="layer-group" href="/features/multi-model-serving">
+    Pin everyday models, auto-load heavier ones on demand. LRU eviction and per-model TTL keep memory in check.
   </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
+  <Card title="Vision-Language Models" icon="eye" href="/features/vision-language-models">
+    Run VLMs with the same continuous batching and paged cache stack as text LLMs.
   </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
+  <Card title="Tool Calling & MCP" icon="wrench" href="/features/tool-calling">
+    Full function calling support for Llama, Qwen, DeepSeek, Gemma, Mistral, and more. MCP tool integration included.
   </Card>
-</Columns>
+</CardGroup>
 
-## Make your content agent ready
+## Get started in three steps
 
-Make your docs work for humans and AI agents alike.
+<Steps>
+  <Step title="Install oMLX">
+    Download the macOS app from [GitHub Releases](https://github.com/jundot/omlx/releases) or install via Homebrew:
 
-<Columns cols={2}>
-  <Card
-    title="Prompt component"
-    icon="robot"
-    href="/agent-ready/prompt"
-  >
-    Embed shareable AI prompts readers can copy or open in Cursor.
-  </Card>
-  <Card
-    title="Visibility"
-    icon="eye"
-    href="/agent-ready/visibility"
-  >
-    Show different content to humans and agents reading your docs.
-  </Card>
-  <Card
-    title="Contextual menu"
-    icon="bolt"
-    href="/agent-ready/contextual"
-  >
-    Give readers one-click access to Claude, ChatGPT, Cursor, and more.
-  </Card>
-  <Card
-    title="AI coding tools"
-    icon="wand-magic-sparkles"
-    href="/ai-tools/claude-code"
-  >
-    Set up Claude Code, Cursor, or Windsurf with Mintlify's skill.
-  </Card>
-</Columns>
+    ```bash
+    brew tap jundot/omlx https://github.com/jundot/omlx
+    brew install omlx
+    ```
+  </Step>
+  <Step title="Start the server">
+    Point oMLX at your models directory:
 
-## Need inspiration?
+    ```bash
+    omlx serve --model-dir ~/models
+    ```
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+    Or launch the macOS app from your Applications folder — the Welcome screen guides you through setup.
+  </Step>
+  <Step title="Connect your client">
+    Any OpenAI-compatible client works out of the box:
+
+    ```bash
+    curl http://localhost:8000/v1/chat/completions \
+      -H "Content-Type: application/json" \
+      -d '{
+        "model": "your-model-name",
+        "messages": [{"role": "user", "content": "Hello!"}]
+      }'
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  oMLX requires macOS 15.0+ (Sequoia), Python 3.10+, and Apple Silicon (M1/M2/M3/M4).
+</Note>

@@ -1,0 +1,137 @@
+---
+title: "MCP Tool Integration with oMLX"
+description: "Configure MCP servers to give oMLX models access to filesystems, databases, and web search tools directly within LLM conversations."
+---
+
+The Model Context Protocol (MCP) is an open standard that lets LLMs call external tools — reading files, querying databases, running web searches, and more — without custom application glue code. oMLX integrates MCP at the server level, so any client connected to your oMLX endpoint automatically has access to the tools you configure. Tool calls are resolved server-side and the results are injected into the conversation before the next generation step.
+
+## Installing MCP support
+
+MCP support is an optional dependency. Install it using the method that matches how you installed oMLX.
+
+<Tabs>
+  <Tab title="Homebrew">
+    ```bash
+    /opt/homebrew/opt/omlx/libexec/bin/pip install mcp
+    ```
+  </Tab>
+  <Tab title="pip / from source">
+    ```bash
+    pip install mcp
+    # or, when installing oMLX itself:
+    pip install -e ".[mcp]"
+    ```
+  </Tab>
+</Tabs>
+
+## Starting the server with MCP
+
+Pass your MCP config file to `omlx serve` via `--mcp-config`:
+
+```bash
+omlx serve --model-dir ~/models --mcp-config mcp.json
+```
+
+You can also set the config path through an environment variable instead of a CLI flag:
+
+```bash
+export OMLX_MCP_CONFIG=/path/to/mcp.json
+omlx serve --model-dir ~/models
+```
+
+The config path is resolved in this order: CLI flag → `OMLX_MCP_CONFIG` env var → `./mcp.json` → `~/.config/omlx/mcp.json`.
+
+## Config file format
+
+Create a `mcp.json` file to define which MCP servers to connect. The example below mirrors the `mcp.example.json` shipped with oMLX:
+
+```json
+{
+  "servers": {
+    "filesystem": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "enabled": true,
+      "timeout": 30
+    },
+    "sqlite": {
+      "transport": "stdio",
+      "command": "uvx",
+      "args": ["mcp-server-sqlite", "--db-path", "data.db"],
+      "enabled": false,
+      "timeout": 30
+    },
+    "web-search": {
+      "transport": "sse",
+      "url": "http://localhost:3001/sse",
+      "enabled": false,
+      "timeout": 60
+    }
+  },
+  "max_tool_calls": 10,
+  "default_timeout": 30.0
+}
+```
+
+<Tip>
+Set `"enabled": false` on any server you want to define but not connect at startup. You can re-enable it later without removing the config entry.
+</Tip>
+
+### Top-level fields
+
+| Field | Type | Description |
+|---|---|---|
+| `max_tool_calls` | integer | Maximum number of tool call rounds per request (default: 10) |
+| `default_timeout` | float | Default per-call timeout in seconds (default: 30.0) |
+
+### Server fields
+
+| Field | Type | Description |
+|---|---|---|
+| `transport` | string | `stdio` or `sse` |
+| `command` | string | Executable to run (stdio only, e.g. `npx`, `uvx`) |
+| `args` | array | Arguments for the command (stdio only) |
+| `url` | string | SSE endpoint URL (sse only) |
+| `enabled` | boolean | Whether to connect this server at startup |
+| `timeout` | integer | Per-server timeout override in seconds |
+
+## Transport types
+
+<AccordionGroup>
+  <Accordion title="stdio">
+    oMLX spawns the MCP server as a child process and communicates via stdin/stdout. Use this for local tool servers installed via `npx` or `uvx`. The `command` and `args` fields are required.
+  </Accordion>
+  <Accordion title="sse">
+    oMLX connects to an already-running MCP server via Server-Sent Events over HTTP. Use this for remote or separately managed tool services. The `url` field is required; `command` and `args` are ignored.
+  </Accordion>
+</AccordionGroup>
+
+## MCP API endpoints
+
+When MCP is configured, oMLX exposes three additional REST endpoints for inspecting and manually invoking tools:
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/v1/mcp/tools` | List all tools from all connected MCP servers |
+| `GET` | `/v1/mcp/servers` | Get connection status of each configured MCP server |
+| `POST` | `/v1/mcp/execute` | Execute a specific MCP tool by name |
+
+These endpoints are useful for debugging your MCP setup or building custom tooling on top of oMLX.
+
+```bash
+# Check which tools are available
+curl http://localhost:8000/v1/mcp/tools
+
+# Check server connection status
+curl http://localhost:8000/v1/mcp/servers
+
+# Execute a tool directly
+curl -X POST http://localhost:8000/v1/mcp/execute \
+  -H "Content-Type: application/json" \
+  -d '{"tool_name": "filesystem__read_file", "arguments": {"path": "/tmp/test.txt"}}'
+```
+
+<Note>
+If the server was not started with `--mcp-config`, `/v1/mcp/execute` returns HTTP 503. The tools and servers endpoints return empty lists rather than an error.
+</Note>

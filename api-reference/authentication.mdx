@@ -1,0 +1,71 @@
+---
+title: "Authenticating with the oMLX API"
+description: "oMLX API key auth is optional for localhost use. Enable it with --api-key, pass it as a Bearer token, and optionally skip verification for local clients."
+---
+
+Authentication in oMLX is optional by design. When you run the server on localhost without setting an API key, every request is accepted without any credentials. This is the recommended configuration for local development and personal use where the server is not exposed to a network. If you do expose oMLX on a LAN or over the internet, enabling an API key is strongly recommended.
+
+## Enabling API key authentication
+
+<Steps>
+  <Step title="Set the API key at startup">
+    Pass `--api-key` when launching the server:
+
+    ```bash
+    omlx serve --model-dir ~/models --api-key your-secret-key
+    ```
+
+    The key is persisted to `~/.omlx/settings.json`, so subsequent server restarts require the key automatically.
+  </Step>
+  <Step title="Or configure it in the admin panel">
+    Open `http://localhost:8000/admin`, go to **Global Settings**, and enter your API key in the authentication section. Changes take effect immediately without a restart.
+  </Step>
+</Steps>
+
+## Passing the API key in requests
+
+Once an API key is set, every API request must include it as a Bearer token in the `Authorization` header:
+
+```bash
+curl http://localhost:8000/v1/models \
+  -H "Authorization: Bearer your-secret-key"
+```
+
+The Anthropic Python SDK uses the `x-api-key` header instead. oMLX accepts both headers for full SDK compatibility:
+
+```bash
+curl http://localhost:8000/v1/messages \
+  -H "x-api-key: your-secret-key" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "your-model", "max_tokens": 256, "messages": [{"role": "user", "content": "Hello"}]}'
+```
+
+## Using sub-keys
+
+The admin panel lets you create sub-keys — additional API keys scoped to API access only. Sub-keys are useful for granting access to specific clients (e.g., a coding agent) without sharing your main key. All sub-keys are checked alongside the main key on every request.
+
+## Skipping verification for localhost
+
+If you set an API key but want to allow localhost clients to skip presenting it — for example, when running browser-based tools on the same machine — you can enable **Skip API key verification** in the admin panel under **Global Settings → Authentication**. With this option on, the key is still required for remote connections but localhost requests are accepted without credentials.
+
+<Note>
+  The skip-verification option is intended for local development convenience only. Do not enable it if oMLX is accessible from other machines on your network.
+</Note>
+
+## Error response
+
+When authentication fails, the server returns HTTP `401 Unauthorized`:
+
+```json
+{
+  "detail": "Invalid API key"
+}
+```
+
+If no `Authorization` header or `x-api-key` header is present when a key is configured, the response is:
+
+```json
+{
+  "detail": "API key required"
+}
+```

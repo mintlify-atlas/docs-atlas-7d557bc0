@@ -1,0 +1,169 @@
+---
+title: "POST /v1/rerank"
+description: "Rerank a list of documents by relevance to a query using ModernBERT and XLM-RoBERTa reranker models with a Cohere/Jina-compatible API."
+---
+
+The `/v1/rerank` endpoint scores a list of candidate documents against a query and returns them sorted by relevance. It is compatible with Cohere's and Jina's rerank API format. oMLX automatically detects reranker model families — ModernBERT and XLM-RoBERTa rerankers are supported — and handles scoring with the appropriate engine. Reranking is particularly useful as a second-stage retrieval step after an initial vector similarity search.
+
+## Supported models
+
+| Family | Examples |
+|--------|---------|
+| ModernBERT | `modernbert-reranker`, `jina-reranker-v2-base-multilingual` |
+| XLM-RoBERTa | `bge-reranker-v2-m3`, `bge-reranker-large` |
+
+## Request
+
+**`POST /v1/rerank`**
+
+### Parameters
+
+<ParamField body="model" type="string" required>
+  The reranker model name or alias to use. Must match a reranker model discovered in your model directory.
+</ParamField>
+
+<ParamField body="query" type="string | object" required>
+  The search query to compare each document against.
+  - Pass a string for text-only rerankers.
+  - Pass an object with `text` and/or `image` (URL, base64 data URI, or local path) for multimodal rerankers such as Qwen3-VL-Reranker.
+</ParamField>
+
+<ParamField body="documents" type="string[] | object[]" required>
+  The documents to rerank. Can be:
+  - A list of strings (plain text documents).
+  - A list of objects, each with a `text` field and an optional `image` field for multimodal rerankers.
+</ParamField>
+
+<ParamField body="top_n" type="number">
+  Number of top results to return. If not specified, all documents are returned sorted by score.
+</ParamField>
+
+<ParamField body="return_documents" type="boolean" default="true">
+  Whether to include the original document text in the response. Set to `false` to return only scores and indices.
+</ParamField>
+
+<ParamField body="max_chunks_per_doc" type="number">
+  Maximum number of chunks per document for long documents. Reserved for future use; not implemented in the current release.
+</ParamField>
+
+## Examples
+
+<CodeGroup>
+
+```bash Basic rerank
+curl http://localhost:8000/v1/rerank \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "bge-reranker-v2-m3",
+    "query": "What is the capital of France?",
+    "documents": [
+      "Paris is the capital and largest city of France.",
+      "The Eiffel Tower is a famous landmark in Paris.",
+      "Berlin is the capital of Germany.",
+      "France is a country in Western Europe."
+    ],
+    "top_n": 2
+  }'
+```
+
+```bash Top N without document text
+curl http://localhost:8000/v1/rerank \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "bge-reranker-v2-m3",
+    "query": "machine learning frameworks",
+    "documents": [
+      "PyTorch is a popular deep learning framework.",
+      "The best recipe for pasta carbonara.",
+      "TensorFlow enables scalable ML training."
+    ],
+    "top_n": 2,
+    "return_documents": false
+  }'
+```
+
+```python Python (requests)
+import requests
+
+response = requests.post(
+    "http://localhost:8000/v1/rerank",
+    json={
+        "model": "bge-reranker-v2-m3",
+        "query": "best practices for API design",
+        "documents": [
+            "REST APIs should use nouns for resource names.",
+            "The history of the Roman Empire.",
+            "GraphQL provides a flexible query language for APIs.",
+            "How to bake sourdough bread.",
+        ],
+        "top_n": 2,
+    },
+)
+results = response.json()["results"]
+for r in results:
+    print(f"[{r['relevance_score']:.4f}] {r['document']['text'][:60]}")
+```
+
+</CodeGroup>
+
+## Response
+
+<ResponseField name="id" type="string">
+  Unique identifier for the rerank request, prefixed with `rerank-`.
+</ResponseField>
+
+<ResponseField name="results" type="object[]">
+  Reranked document list, sorted by `relevance_score` descending. If `top_n` was specified, only the top N results are included.
+
+  <Expandable title="Result object properties">
+    <ResponseField name="index" type="number">
+      The original position of this document in the input `documents` array.
+    </ResponseField>
+    <ResponseField name="relevance_score" type="number">
+      Relevance score between 0 and 1. Higher is more relevant.
+    </ResponseField>
+    <ResponseField name="document" type="object">
+      The document content, present when `return_documents` is `true`. For text-only inputs, format is `{"text": "..."}`. For multimodal inputs, the original dict (including `image`) is returned.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="model" type="string">
+  The reranker model used.
+</ResponseField>
+
+<ResponseField name="usage" type="object">
+  <Expandable title="Usage properties">
+    <ResponseField name="total_tokens" type="number">
+      Total tokens processed across all query-document pairs.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example response
+
+```json
+{
+  "id": "rerank-a1b2c3d4",
+  "results": [
+    {
+      "index": 0,
+      "relevance_score": 0.9821,
+      "document": {
+        "text": "Paris is the capital and largest city of France."
+      }
+    },
+    {
+      "index": 1,
+      "relevance_score": 0.7134,
+      "document": {
+        "text": "The Eiffel Tower is a famous landmark in Paris."
+      }
+    }
+  ],
+  "model": "bge-reranker-v2-m3",
+  "usage": {
+    "total_tokens": 128
+  }
+}
+```

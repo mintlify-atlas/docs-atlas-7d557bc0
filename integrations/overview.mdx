@@ -1,0 +1,73 @@
+---
+title: "Connect oMLX to Coding Tools and AI Clients"
+description: "One-click integrations for Claude Code, Codex, OpenClaw, Pi, and OpenCode let you point any local coding agent at your oMLX inference server in seconds."
+---
+
+oMLX ships with first-class support for the most popular AI coding tools. Once your server is running, you can connect Claude Code, Codex, OpenClaw, Pi, or OpenCode without editing config files manually — either through the admin dashboard or a single CLI command. Each integration configures authentication, model selection, and endpoint routing automatically so your tool of choice talks directly to your local models.
+
+## Two ways to connect
+
+### Admin dashboard
+
+Open the admin dashboard at `http://localhost:8000/admin` and navigate to the **Integrations** tab. Each supported tool has a one-click setup button that writes the required config and launches the tool. This is the quickest path and works without a terminal.
+
+### omlx launch
+
+The `omlx launch` command configures and starts an external tool in a single step. It fetches the list of available models from the running server and either selects the only model automatically or presents an interactive picker.
+
+```bash
+# List all integrations and their install status
+omlx launch list
+
+# Launch a specific tool (interactive model selection)
+omlx launch codex
+
+# Launch with a specific model
+omlx launch codex --model Qwen3-Coder-Next-8bit
+```
+
+<Note>
+The server must be running before you call `omlx launch`. Start it with `omlx serve --model-dir ~/models` if it is not already running.
+</Note>
+
+## Supported integrations
+
+<CardGroup cols={2}>
+  <Card title="Claude Code" icon="terminal" href="/integrations/claude-code">
+    Connect Anthropic's Claude Code CLI to oMLX for local agentic coding. Includes context scaling and SSE keep-alive optimizations.
+  </Card>
+  <Card title="Codex" icon="code" href="/integrations/coding-tools">
+    Use OpenAI's Codex CLI with any model loaded in oMLX. Config is written to `~/.codex/config.toml` automatically.
+  </Card>
+  <Card title="OpenClaw" icon="brackets-curly" href="/integrations/coding-tools">
+    Launch OpenClaw's TUI with your choice of tools profile: minimal, coding, messaging, or full.
+  </Card>
+  <Card title="Pi" icon="circle-dot" href="/integrations/coding-tools">
+    Connect the Pi coding agent to oMLX. Supports both LLM and VLM models with automatic context window configuration.
+  </Card>
+  <Card title="OpenCode" icon="square-code" href="/integrations/coding-tools">
+    Wire OpenCode to oMLX by writing a provider entry to `~/.config/opencode/opencode.json`.
+  </Card>
+  <Card title="MCP Tools" icon="plug" href="/integrations/mcp">
+    Give any loaded model access to filesystem, databases, web search, and other tools via the Model Context Protocol.
+  </Card>
+</CardGroup>
+
+## Checking available integrations
+
+Run the following command to see every supported integration and whether the required binary is installed on your system:
+
+```bash
+omlx launch list
+```
+
+Example output:
+
+```
+Available integrations:
+  claude       Claude Code (installed)
+  codex        Codex (installed)
+  openclaw     OpenClaw (not installed)
+  pi           Pi (not installed)
+  opencode     OpenCode (installed)
+```

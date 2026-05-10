@@ -1,0 +1,160 @@
+---
+title: "POST /v1/embeddings"
+description: "Generate text embeddings with BERT, BGE-M3, and ModernBERT models using the OpenAI-compatible embeddings endpoint with float or base64 output formats."
+---
+
+The `/v1/embeddings` endpoint generates dense vector representations of text using embedding models. It is fully compatible with the OpenAI Embeddings API, so any library using `openai.embeddings.create(...)` works by changing only the base URL. oMLX auto-detects embedding model families — BERT, BGE-M3, and ModernBERT are supported — and routes requests to the appropriate engine automatically.
+
+## Supported models
+
+| Family | Examples |
+|--------|---------|
+| BERT | `bert-base-uncased`, `bert-large-uncased` |
+| BGE-M3 | `bge-m3`, `bge-large-en-v1.5` |
+| ModernBERT | `modernbert-base`, `modernbert-large` |
+
+Point `--model-dir` at a directory containing MLX-format embedding model subdirectories. The model type is detected automatically; no manual configuration is needed.
+
+## Request
+
+**`POST /v1/embeddings`**
+
+### Parameters
+
+<ParamField body="model" type="string" required>
+  The embedding model name or alias to use. Must match an embedding model discovered in your model directory.
+</ParamField>
+
+<ParamField body="input" type="string | string[]">
+  The text to embed. Accepts a single string or an array of strings. Each string is embedded independently. Either `input` or `items` must be provided, but not both.
+</ParamField>
+
+<ParamField body="items" type="object[]">
+  Structured input for multimodal embedding models. Each item is an object with at least one of `text` (string) or `image` (string). Mutually exclusive with `input`.
+
+  <Expandable title="items object properties">
+    <ParamField body="text" type="string">
+      Text to embed.
+    </ParamField>
+    <ParamField body="image" type="string">
+      Image to embed (URL, base64 data URI, or local file path). Supported only by multimodal embedding models.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="encoding_format" type="string" default="float">
+  Format of the returned embedding vector. `"float"` returns a JSON array of numbers; `"base64"` returns a base64-encoded string of little-endian 32-bit floats, suitable for compact storage.
+</ParamField>
+
+<ParamField body="dimensions" type="number">
+  Truncate the output embedding to this many dimensions. Only supported by models that allow dimension reduction. If the model does not support it, the full-dimension vector is returned.
+</ParamField>
+
+## Examples
+
+<CodeGroup>
+
+```bash Single string
+curl http://localhost:8000/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "bge-m3",
+    "input": "The quick brown fox jumps over the lazy dog"
+  }'
+```
+
+```bash Batch
+curl http://localhost:8000/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "bge-m3",
+    "input": [
+      "First document to embed",
+      "Second document to embed"
+    ]
+  }'
+```
+
+```python OpenAI SDK
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="local")
+
+response = client.embeddings.create(
+    model="bge-m3",
+    input="The quick brown fox jumps over the lazy dog",
+)
+vector = response.data[0].embedding
+print(f"Embedding dimensions: {len(vector)}")
+```
+
+```python Batch with OpenAI SDK
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="local")
+
+texts = ["First sentence.", "Second sentence.", "Third sentence."]
+response = client.embeddings.create(model="bge-m3", input=texts)
+
+for item in response.data:
+    print(f"[{item.index}] dims={len(item.embedding)}")
+```
+
+</CodeGroup>
+
+## Response
+
+<ResponseField name="object" type="string">
+  Always `"list"`.
+</ResponseField>
+
+<ResponseField name="data" type="object[]">
+  List of embedding results, one per input string, in the same order as the input.
+
+  <Expandable title="Embedding object properties">
+    <ResponseField name="object" type="string">
+      Always `"embedding"`.
+    </ResponseField>
+    <ResponseField name="index" type="number">
+      The position of this embedding in the input list.
+    </ResponseField>
+    <ResponseField name="embedding" type="number[] | string">
+      The embedding vector. A JSON array of floats when `encoding_format` is `"float"`, or a base64 string when `"base64"`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="model" type="string">
+  The embedding model used.
+</ResponseField>
+
+<ResponseField name="usage" type="object">
+  <Expandable title="Usage properties">
+    <ResponseField name="prompt_tokens" type="number">
+      Total tokens across all input strings.
+    </ResponseField>
+    <ResponseField name="total_tokens" type="number">
+      Same as `prompt_tokens` (embeddings have no completion tokens).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example response
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "object": "embedding",
+      "index": 0,
+      "embedding": [0.0234, -0.0891, 0.1234, "..."]
+    }
+  ],
+  "model": "bge-m3",
+  "usage": {
+    "prompt_tokens": 9,
+    "total_tokens": 9
+  }
+}
+```

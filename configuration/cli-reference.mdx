@@ -1,0 +1,141 @@
+---
+title: "oMLX CLI Reference — Commands and Flags"
+description: "Complete reference for all oMLX CLI commands: omlx serve, omlx launch, and omlx diagnose, including every flag, default value, and usage example."
+---
+
+oMLX exposes three top-level commands — `serve`, `launch`, and `diagnose` — each designed for a distinct part of the workflow. `serve` starts the inference server and accepts the bulk of the configuration flags. `launch` wires an external coding tool (such as Codex or OpenCode) to a running oMLX server. `diagnose` checks installation health and prints recovery steps. All flags shown below reflect the actual argparse defaults in `omlx/cli.py`.
+
+## omlx serve
+
+Start a multi-model OpenAI-compatible inference server. Models are discovered automatically from subdirectories of `--model-dir`. Each subdirectory must contain a valid MLX model with a `config.json` and one or more `.safetensors` files.
+
+```bash
+omlx serve --model-dir ~/models
+omlx serve --model-dir ~/models --max-model-memory 32GB --port 8080
+omlx serve --model-dir ~/models --paged-ssd-cache-dir ~/.omlx/cache --hot-cache-max-size 8GB
+omlx serve --model-dir ~/models --api-key your-secret-key --log-level debug
+```
+
+<AccordionGroup>
+  <Accordion title="Model and memory flags">
+    | Flag | Type | Default | Description |
+    |------|------|---------|-------------|
+    | `--model-dir` | string | `~/.omlx/models` | Directory containing model subdirectories. Accepts a comma-separated list for multiple directories. |
+    | `--max-model-memory` | string | `auto` (80% of system RAM) | Maximum memory budget for loaded models. Accepts human-readable sizes like `32GB` or the special value `disabled` to remove the limit entirely. |
+    | `--max-process-memory` | string | `auto` (RAM − 8 GB) | Total process memory ceiling. Accepts a percentage (`80%`), the value `auto`, or `disabled`. Valid percentage range is 10–99. |
+  </Accordion>
+
+  <Accordion title="Server flags">
+    | Flag | Type | Default | Description |
+    |------|------|---------|-------------|
+    | `--host` | string | `127.0.0.1` | Host address to bind. Use `0.0.0.0` to expose the server on all interfaces. |
+    | `--port` | integer | `8000` | TCP port to listen on. |
+    | `--log-level` | choice | `info` | Verbosity level. Options: `trace`, `debug`, `info`, `warning`, `error`. The `trace` level includes full message content and maps to `debug` inside uvicorn. |
+    | `--sse-keepalive-mode` | choice | `chunk` | Controls how SSE keepalive events are emitted. `chunk` sends protocol-aware no-op events compatible with strict clients such as OpenClaw; `comment` sends the legacy `: keep-alive` comment; `off` disables keepalive entirely. |
+    | `--api-key` | string | *(none)* | Optional API key. When set, all requests must include `Authorization: Bearer <key>`. |
+    | `--base-path` | string | `~/.omlx` | Root directory for all oMLX data (models, logs, cache, settings). |
+  </Accordion>
+
+  <Accordion title="Scheduler flags">
+    | Flag | Type | Default | Description |
+    |------|------|---------|-------------|
+    | `--max-concurrent-requests` | integer | `8` | Maximum number of requests processed simultaneously. Higher values increase throughput but consume more memory. |
+  </Accordion>
+
+  <Accordion title="Paged SSD cache flags">
+    | Flag | Type | Default | Description |
+    |------|------|---------|-------------|
+    | `--paged-ssd-cache-dir` | string | *(none)* | Directory for paged SSD cache storage. Providing this flag enables the oMLX prefix cache. Defaults to `~/.omlx/cache` when enabled via settings. |
+    | `--paged-ssd-cache-max-size` | string | `100GB` | Maximum disk space the SSD cache may occupy. Accepts sizes like `100GB` or `50GB`. |
+    | `--hot-cache-max-size` | string | `0` (disabled) | In-memory hot cache budget. Accepts sizes like `8GB`. When set to `0`, only the cold SSD tier is used. |
+    | `--no-cache` | flag | off | Disables the oMLX paged SSD cache entirely. mlx-lm's `BatchGenerator` still manages KV state internally. |
+    | `--initial-cache-blocks` | integer | `256` | Number of cache blocks pre-allocated at startup. Higher values reduce dynamic allocation overhead for large contexts. |
+  </Accordion>
+
+  <Accordion title="MCP flags">
+    | Flag | Type | Default | Description |
+    |------|------|---------|-------------|
+    | `--mcp-config` | string | *(none)* | Path to a Model Context Protocol configuration file in JSON or YAML format. |
+  </Accordion>
+
+  <Accordion title="Hub and network flags">
+    | Flag | Type | Default | Description |
+    |------|------|---------|-------------|
+    | `--hf-endpoint` | string | *(none)* | Custom HuggingFace Hub endpoint. Use `https://hf-mirror.com` for regions with restricted access to `huggingface.co`. |
+    | `--ms-endpoint` | string | *(none)* | Custom ModelScope Hub endpoint URL. |
+    | `--http-proxy` | string | *(none)* | HTTP proxy URL, e.g. `http://proxy.company.com:8080`. Sets both `HTTP_PROXY` and `http_proxy` environment variables. |
+    | `--https-proxy` | string | *(none)* | HTTPS proxy URL. Sets both `HTTPS_PROXY` and `https_proxy` environment variables. |
+    | `--no-proxy` | string | *(none)* | Comma-separated list of hosts or IPs to bypass the proxy, e.g. `localhost,127.0.0.1`. |
+    | `--ca-bundle` | string | *(none)* | Path to a CA bundle PEM file for TLS interception environments. Sets `REQUESTS_CA_BUNDLE` and `SSL_CERT_FILE`. |
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+  When you pass any non-default flag to `omlx serve`, oMLX automatically saves the resulting configuration to `~/.omlx/settings.json`. Subsequent `omlx serve` invocations without flags will pick up the saved values.
+</Note>
+
+---
+
+## omlx launch
+
+Configure and launch an external tool to use the running oMLX server. The command checks that the server is reachable before launching, and if `--model` is omitted it prompts you to choose from the available models.
+
+```bash
+omlx launch opencode
+omlx launch codex --model qwen3-coder
+omlx launch openclaw --tools-profile full
+omlx launch list
+```
+
+<AccordionGroup>
+  <Accordion title="Positional argument">
+    | Argument | Description |
+    |----------|-------------|
+    | `tool` | The tool to launch. One of `claude`, `codex`, `opencode`, `openclaw`, `pi`, or the literal string `list` to print all available integrations with their install status. |
+  </Accordion>
+
+  <Accordion title="Options">
+    | Flag | Type | Default | Description |
+    |------|------|---------|-------------|
+    | `--model` | string | *(interactive)* | Model to pass to the tool. If omitted and only one model is loaded, it is selected automatically. If multiple models are loaded, you are prompted to choose. |
+    | `--host` | string | from settings or `127.0.0.1` | oMLX server host. Resolved in order: CLI flag → settings.json → default. |
+    | `--port` | integer | from settings or `8000` | oMLX server port. Resolved in order: CLI flag → settings.json → default. |
+    | `--api-key` | string | from settings | API key for authenticating with the oMLX server. |
+    | `--tools-profile` | choice | `coding` | OpenClaw tools profile. Options: `minimal`, `coding`, `messaging`, `full`. |
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## omlx diagnose
+
+Run diagnostic checks and print recovery steps for known issues.
+
+```bash
+omlx diagnose menubar
+```
+
+<AccordionGroup>
+  <Accordion title="Positional argument">
+    | Argument | Value | Description |
+    |----------|-------|-------------|
+    | `target` | `menubar` | Diagnoses why the oMLX menubar icon may be hidden on macOS Tahoe (26.x). Reports macOS version, app install path, running PID, and recent ControlCenter visibility log entries. Prints manual recovery steps because Apple's sandbox policy prevents third-party apps from programmatically re-enabling their own status item. |
+  </Accordion>
+</AccordionGroup>
+
+**Example output**
+
+```text
+oMLX menubar diagnostics
+========================================
+macOS:          26.0
+Bundle ID:      com.omlx.app
+App installed:  yes
+Menubar app:    running
+PID:            1234
+
+If the icon is missing on macOS Tahoe (26.x):
+  1. Open System Settings > Menu Bar
+  2. Find 'oMLX' and set it to 'Show in Menu Bar'
+  3. If oMLX isn't in the list, quit the menubar app and relaunch oMLX.app
+```

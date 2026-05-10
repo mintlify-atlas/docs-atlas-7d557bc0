@@ -1,0 +1,114 @@
+---
+title: "Multi-Model Serving with LRU Eviction"
+description: "oMLX's EnginePool runs LLMs, VLMs, embeddings, and rerankers side-by-side. Automatic LRU eviction, model pinning, and per-model TTL keep memory in check."
+---
+
+oMLX's `EnginePool` treats every model in your model directory as a first-class citizen. Text LLMs, vision-language models, embedding models, and rerankers all coexist in the same server process. When a request arrives for a model that isn't loaded, the pool evicts the least-recently-used (LRU) unpinned model to free memory, then loads the requested one—before the response begins, not after. This pre-load eviction strategy means you never hit an out-of-memory condition mid-inference.
+
+## Engine Types
+
+| Model Type | Engine Class | Auto-detected From |
+|---|---|---|
+| LLM | `BatchedEngine` | Any [mlx-lm](https://github.com/ml-explore/mlx-lm) compatible model |
+| VLM | `VLMBatchedEngine` | Presence of vision encoder weights (mlx-vlm) |
+| OCR | `VLMBatchedEngine` | `config_model_type` matching `deepseekocr`, `dots_ocr`, `glm_ocr` |
+| Embedding | `EmbeddingEngine` | BERT, BGE-M3, ModernBERT architectures |
+| Reranker | `RerankerEngine` | ModernBERT, XLM-RoBERTa architectures |
+
+All LLM and VLM engines share the same continuous batching stack and tiered KV cache. Embedding and reranker engines are stateless and unloaded/loaded independently.
+
+## Model Directory Structure
+
+Point `--model-dir` at a flat directory of model subdirectories, or use a two-level organization with a provider prefix:
+
+```
+~/models/
+├── Qwen3-Coder-8bit/          # LLM — loaded as BatchedEngine
+├── Qwen3.5-32B-VL-4bit/      # VLM — loaded as VLMBatchedEngine
+├── DeepSeek-OCR/              # OCR — VLMBatchedEngine with auto prompts
+├── bge-m3/                    # Embedding — EmbeddingEngine
+├── ModernBERT-reranker/       # Reranker — RerankerEngine
+└── mlx-community/
+    └── Llama-3.2-3B-Instruct/ # Two-level layout also supported
+```
+
+## Memory Management
+
+### LRU Eviction
+
+When a new model needs to load and insufficient memory is available, `_find_lru_victim()` selects the loaded, non-pinned model with the oldest `last_access` timestamp. The eviction loop runs until `current_model_memory + required ≤ max_model_memory`. Models with active inference requests are skipped automatically—they cannot be interrupted mid-generation.
+
+After unloading, oMLX polls `mx.get_active_memory()` in a settle barrier loop to confirm Metal buffers are actually reclaimed before updating the memory counter. This prevents cascading OOM from stale buffer accounting.
+
+### KV Cache Headroom
+
+When loading a model, oMLX reserves an extra 25% of the estimated model size as KV cache headroom:
+
+```
+required_with_headroom = estimated_size × 1.25
+```
+
+This causes LRU eviction to trigger slightly earlier, leaving room for context to grow during generation. If all evictable models are exhausted and the model still fits without headroom, it loads anyway.
+
+### Process Memory Enforcement
+
+A `ProcessMemoryEnforcer` monitors total Metal memory (`mx.get_active_memory()`) separately from per-model estimates. This is the hard backstop that prevents system-wide OOM when many models are loaded simultaneously or when KV cache grows beyond estimates.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--max-model-memory` | *(disabled)* | Maximum combined RAM for loaded model weights. Accepts bytes, `GB`, or `%`. |
+| `--max-process-memory` | `RAM - 8 GB` | Total Metal memory limit for the entire server process. |
+| `--max-concurrent-requests` | `8` | Maximum requests processed simultaneously across all models. |
+
+```bash
+# Allow up to 64 GB for model weights, 80% of RAM for the process
+omlx serve --model-dir ~/models \
+           --max-model-memory 64GB \
+           --max-process-memory 80%
+```
+
+## Model Pinning
+
+Pin a model to keep it permanently loaded regardless of memory pressure. Pinned models are never chosen as LRU victims. They are preloaded at server startup via `preload_pinned_models()`.
+
+Pinning is configured from the admin panel's model settings modal or via the `pinned_models` setting in `~/.omlx/settings.json`.
+
+<Note>
+  If a pinned model's estimated size exceeds `--max-model-memory`, the server will log a warning at startup and skip the preload. The model remains pinned and will load if memory becomes available.
+</Note>
+
+## Per-Model TTL
+
+Set an idle timeout per model so it unloads automatically after a period of inactivity. This is useful for large models you use occasionally but don't want consuming RAM indefinitely.
+
+TTL is configured per model in the admin panel. A global fallback TTL can be set server-wide. Pinned models ignore TTL entirely. Models with active requests have their `last_access` refreshed and are skipped until the request completes.
+
+## Manual Load and Unload
+
+The admin panel's model list shows a status badge for each discovered model:
+
+- **Unloaded** — click to load immediately
+- **Loading** — spinner while weights transfer from disk to Metal
+- **Loaded** — click to unload and free memory
+- **Pinned** — always loaded; unpin first to allow eviction
+
+## Load Time Estimation
+
+oMLX tracks an exponential moving average of observed load speed in seconds per GB across all model loads. This estimate is exposed in the admin panel so you can anticipate how long a cold load will take before clicking.
+
+<Accordion title="Architecture diagram">
+```
+FastAPI Server (OpenAI / Anthropic API)
+    │
+    ├── EnginePool (multi-model, LRU eviction, TTL, manual load/unload)
+    │   ├── BatchedEngine         (LLMs — continuous batching via mlx-lm)
+    │   ├── VLMBatchedEngine      (VLMs — vision + continuous batching)
+    │   ├── EmbeddingEngine       (BERT, BGE-M3, ModernBERT)
+    │   └── RerankerEngine        (ModernBERT, XLM-RoBERTa)
+    │
+    ├── ProcessMemoryEnforcer     (total Metal memory limit, TTL checks)
+    │
+    └── Scheduler (FCFS, configurable concurrency)
+        └── mlx-lm BatchGenerator
+```
+</Accordion>

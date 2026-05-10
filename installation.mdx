@@ -1,0 +1,121 @@
+---
+title: "Install oMLX on macOS"
+description: "Three ways to install oMLX on Apple Silicon: macOS app for zero-config setup, Homebrew for CLI and background services, or from source for development."
+---
+
+oMLX runs on macOS 15.0+ (Sequoia) with Apple Silicon (M1/M2/M3/M4) and Python 3.10+. Choose the installation method that fits your workflow: the macOS app is the fastest way to get started, Homebrew gives you CLI access and background service management, and source install is best if you want to modify oMLX itself.
+
+<Tabs>
+  <Tab title="macOS App">
+    Download the `.dmg` from [GitHub Releases](https://github.com/jundot/omlx/releases), open it, and drag oMLX to your Applications folder.
+
+    Once installed, launch oMLX from Applications. The Welcome screen walks you through three steps: set your model directory, start the server, and download your first model.
+
+    The macOS app includes in-app auto-update — future upgrades are a single click inside the app.
+
+    <Warning>
+      The macOS app does **not** install the `omlx` CLI command. If you need terminal access (for example, to use `omlx serve` or `omlx launch`), install via Homebrew or from source instead.
+    </Warning>
+  </Tab>
+  <Tab title="Homebrew">
+    Homebrew gives you the `omlx` CLI and lets you run oMLX as a managed background service that auto-restarts on crash.
+
+    ```bash
+    brew tap jundot/omlx https://github.com/jundot/omlx
+    brew install omlx
+    ```
+
+    ### Running as a background service
+
+    After installing, you can start oMLX as a system service:
+
+    ```bash
+    brew services start omlx    # Start (auto-restarts on crash)
+    brew services stop omlx     # Stop
+    brew services restart omlx  # Restart
+    brew services info omlx     # Check status and PID
+    ```
+
+    The service runs `omlx serve` with zero-config defaults: model directory `~/.omlx/models`, port `8000`. To customize, set environment variables before starting the service, or run `omlx serve --model-dir /your/path` once to persist settings to `~/.omlx/settings.json`.
+
+    ### Environment variables
+
+    | Variable | Description | Default |
+    |----------|-------------|---------|
+    | `OMLX_MODEL_DIR` | Directory containing your model subdirectories | `~/.omlx/models` |
+    | `OMLX_PORT` | Port the server listens on | `8000` |
+
+    ### Log locations
+
+    oMLX writes logs to two locations:
+
+    - **Service log**: `$(brew --prefix)/var/log/omlx.log` — stdout/stderr from the service process
+    - **Server log**: `~/.omlx/logs/server.log` — structured application log with request details
+
+    ### MCP support (optional)
+
+    To enable [Model Context Protocol](https://modelcontextprotocol.io) tool integration, install the `mcp` package into oMLX's isolated environment:
+
+    ```bash
+    /opt/homebrew/opt/omlx/libexec/bin/pip install mcp
+    ```
+
+    ### Upgrading
+
+    ```bash
+    brew update && brew upgrade omlx
+    ```
+  </Tab>
+  <Tab title="From Source">
+    Install from source if you want to modify oMLX or contribute to development.
+
+    ```bash
+    git clone https://github.com/jundot/omlx.git
+    cd omlx
+    pip install -e .
+    ```
+
+    ### With optional extras
+
+    ```bash
+    # With MCP (Model Context Protocol) support
+    pip install -e ".[mcp]"
+
+    # With development tools (pytest, black, ruff, mypy)
+    pip install -e ".[dev]"
+
+    # With grammar-constrained decoding (requires ~2 GB for torch)
+    pip install -e ".[grammar]"
+    ```
+
+    <Note>
+      The source install supports Python 3.10, 3.11, 3.12, and 3.13. For the macOS app bundle, Python 3.11+ is required (see `packaging/README.md`).
+    </Note>
+
+    After installing, run the server directly:
+
+    ```bash
+    omlx serve --model-dir ~/models
+    ```
+  </Tab>
+</Tabs>
+
+## Verifying the installation
+
+After installing via Homebrew or from source, confirm the CLI is available:
+
+```bash
+omlx --help
+```
+
+Then start the server and check the health endpoint:
+
+```bash
+omlx serve --model-dir ~/models
+```
+
+```bash
+curl http://localhost:8000/health
+```
+
+You should receive a `200 OK` response. The admin dashboard is available at `http://localhost:8000/admin`.

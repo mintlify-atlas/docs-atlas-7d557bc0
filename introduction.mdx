@@ -1,0 +1,81 @@
+---
+title: "oMLX: Local LLM Inference Optimized for Apple Silicon"
+description: "oMLX is a local LLM inference server for Apple Silicon Macs. Continuous batching, tiered KV caching, multi-model serving, and an OpenAI-compatible API."
+---
+
+oMLX is a local LLM inference server built specifically for Apple Silicon. It runs LLMs, vision-language models, embedding models, and rerankers on your Mac — with continuous batching, a two-tier KV cache that persists context across restarts, and a full OpenAI-compatible API. You manage everything from a native macOS menu bar app or a single CLI command, without shipping your data to a cloud provider.
+
+## Who oMLX is for
+
+oMLX is designed for developers who want to run local models seriously — not just for quick experiments, but as a reliable backend for coding agents, chatbots, and AI-assisted workflows. If you've tried other local inference servers and found them too slow, too bare-bones, or too awkward to integrate with tools like Claude Code or Codex, oMLX was built to solve that.
+
+## The problem oMLX solves
+
+Running large models locally on Apple Silicon is possible — but keeping them practical for real work is hard. Most servers force a tradeoff: either you keep a model pinned in memory (fast, but wastes RAM on models you rarely use) or you reload it on demand (flexible, but slow and wasteful for long contexts). oMLX removes that tradeoff.
+
+Its tiered KV cache keeps frequently used context blocks hot in RAM and offloads the rest to SSD in safetensors format. When you make a new request that shares a prefix with a previous one — even after a server restart — oMLX restores those blocks from disk instead of recomputing them. For coding agents that send large system prompts on every turn, this makes a significant practical difference.
+
+## Key features
+
+- **Tiered KV cache (hot RAM + cold SSD)** — Block-based KV cache with prefix sharing and Copy-on-Write. Hot blocks stay in RAM; cold blocks are offloaded to SSD and restored on demand, even across restarts.
+- **Continuous batching** — Handles concurrent requests through mlx-lm's `BatchGenerator`. Max concurrent requests is configurable.
+- **Multi-model serving** — Load LLMs, VLMs, embedding models, and rerankers in the same server instance. Models are managed with LRU eviction, per-model TTL, manual pinning, and memory limits.
+- **macOS menu bar app** — Native PyObjC app (not Electron). Start, stop, and monitor the server without opening a terminal. Includes auto-restart on crash and in-app auto-update.
+- **OpenAI-compatible API** — Drop-in replacement for OpenAI and Anthropic APIs. Any OpenAI-compatible client connects to `http://localhost:8000/v1` with no configuration changes.
+
+## System requirements
+
+| Requirement | Minimum |
+|-------------|---------|
+| macOS | 15.0+ (Sequoia) |
+| Python | 3.10+ |
+| Hardware | Apple Silicon (M1, M2, M3, or M4) |
+
+<Note>
+  Intel Macs are not supported. oMLX uses MLX, Apple's machine learning framework, which requires Apple Silicon.
+</Note>
+
+## Where to go next
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install oMLX via macOS app, Homebrew, or from source.
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Start the server, load a model, and make your first API call in under 5 minutes.
+  </Card>
+  <Card title="Tiered KV cache" icon="database" href="/features/kv-cache">
+    How the hot RAM and cold SSD cache tiers work, and how to configure them.
+  </Card>
+  <Card title="API reference" icon="code" href="/api-reference/overview">
+    Endpoint reference for chat completions, embeddings, reranking, and more.
+  </Card>
+</CardGroup>
+
+## Architecture
+
+oMLX is built on FastAPI with a layered engine architecture that routes each request to the right engine type and manages memory across all loaded models.
+
+```
+FastAPI Server (OpenAI / Anthropic API)
+    │
+    ├── EnginePool (multi-model, LRU eviction, TTL, manual load/unload)
+    │   ├── BatchedEngine (LLMs, continuous batching)
+    │   ├── VLMEngine (vision-language models)
+    │   ├── EmbeddingEngine
+    │   └── RerankerEngine
+    │
+    ├── ProcessMemoryEnforcer (total memory limit, TTL checks)
+    │
+    ├── Scheduler (FCFS, configurable concurrency)
+    │   └── mlx-lm BatchGenerator
+    │
+    └── Cache Stack
+        ├── PagedCacheManager (GPU, block-based, CoW, prefix sharing)
+        ├── Hot Cache (in-memory tier, write-back)
+        └── PagedSSDCacheManager (SSD cold tier, safetensors format)
+```
+
+The `EnginePool` is the central registry for all loaded models. It handles automatic LRU eviction when memory is low, respects per-model TTL settings, and supports manual load/unload from the admin panel. The `ProcessMemoryEnforcer` enforces a configurable process-level memory ceiling (default: system RAM minus 8 GB) to prevent system-wide OOM conditions.
+
+The cache stack sits below the scheduler and is shared across concurrent requests. The `PagedCacheManager` allocates fixed-size blocks on the GPU and uses Copy-on-Write to allow prefix sharing between requests without copying data. When the hot in-memory tier fills up, the `PagedSSDCacheManager` writes blocks to SSD in safetensors format, where they persist across server restarts.

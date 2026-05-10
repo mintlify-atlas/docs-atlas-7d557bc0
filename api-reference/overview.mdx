@@ -1,0 +1,63 @@
+---
+title: "oMLX API Reference"
+description: "Complete reference for oMLX's OpenAI-compatible and Anthropic-compatible HTTP API endpoints, including chat, embeddings, reranking, and MCP tools."
+---
+
+oMLX exposes a local HTTP API that is a drop-in replacement for both the OpenAI and Anthropic REST APIs. Any client that works with `https://api.openai.com/v1` or `https://api.anthropic.com` can be pointed at `http://localhost:8000` with no code changes beyond the base URL. The server runs fully offline on Apple Silicon and supports streaming via Server-Sent Events (SSE), tool calling, structured output, vision inputs, and MCP tool integration.
+
+## Base URL
+
+```
+http://localhost:8000
+```
+
+The host and port are configurable via `--host` and `--port` CLI flags, or through the admin panel at `/admin`. All API paths below are relative to this base URL.
+
+## All endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/v1/chat/completions` | Chat completions (OpenAI compatible) |
+| `POST` | `/v1/completions` | Text completions |
+| `POST` | `/v1/messages` | Anthropic Messages API |
+| `POST` | `/v1/responses` | OpenAI Responses API (Codex compatibility) |
+| `POST` | `/v1/embeddings` | Text embeddings |
+| `POST` | `/v1/rerank` | Document reranking |
+| `GET` | `/v1/models` | List available models |
+| `GET` | `/health` | Health check |
+| `GET` | `/v1/mcp/tools` | List MCP tools |
+| `GET` | `/v1/mcp/servers` | MCP server status |
+| `POST` | `/v1/mcp/execute` | Execute an MCP tool |
+
+## Streaming
+
+Most generation endpoints accept `"stream": true` in the request body. When streaming is enabled, the server responds with a series of `text/event-stream` SSE events. Pass `"stream_options": {"include_usage": true}` to receive token usage statistics on the final chunk.
+
+## Authentication
+
+Authentication is optional. By default, oMLX accepts all requests without an API key, which is safe for localhost-only use. To require a key, start the server with `--api-key` or configure it in the admin panel.
+
+See [Authentication](/api-reference/authentication) for full details.
+
+## Explore the API
+
+<CardGroup cols={2}>
+  <Card title="Chat completions" icon="comments" href="/api-reference/chat-completions">
+    OpenAI-compatible chat endpoint with streaming, tool calling, and vision support.
+  </Card>
+  <Card title="Anthropic Messages" icon="message" href="/api-reference/messages">
+    Drop-in replacement for the Anthropic Messages API with adaptive thinking.
+  </Card>
+  <Card title="Embeddings" icon="vector-square" href="/api-reference/embeddings">
+    Generate text embeddings with BERT, BGE-M3, and ModernBERT models.
+  </Card>
+  <Card title="Rerank" icon="arrow-up-wide-short" href="/api-reference/rerank">
+    Rerank documents by relevance using ModernBERT and XLM-RoBERTa.
+  </Card>
+  <Card title="Models" icon="list" href="/api-reference/models">
+    List all discovered models and their load status.
+  </Card>
+  <Card title="MCP tools" icon="wrench" href="/api-reference/mcp-tools">
+    List and execute tools from connected MCP servers.
+  </Card>
+</CardGroup>

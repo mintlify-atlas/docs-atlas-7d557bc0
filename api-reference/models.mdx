@@ -1,0 +1,165 @@
+---
+title: "GET /v1/models"
+description: "List all models discovered by oMLX, including their type, load status, and aliases. Also covers the /v1/models/status and /health endpoints."
+---
+
+The `/v1/models` endpoint returns the list of all models that oMLX has discovered in your configured model directory. The response is compatible with the OpenAI List Models API, so any OpenAI client can use it to enumerate available models. oMLX extends the standard response with model type and load status information available via the `/v1/models/status` endpoint.
+
+## List models
+
+**`GET /v1/models`**
+
+Returns all discovered models. For each model, the `id` field is the alias if one is configured in per-model settings, or the directory name otherwise. Both the alias and the directory name are accepted when specifying a model in generation requests.
+
+### Example
+
+```bash
+curl http://localhost:8000/v1/models
+```
+
+### Response
+
+<ResponseField name="object" type="string">
+  Always `"list"`.
+</ResponseField>
+
+<ResponseField name="data" type="object[]">
+  Array of model objects.
+
+  <Expandable title="Model object properties">
+    <ResponseField name="id" type="string">
+      Model identifier. This is the alias if configured, otherwise the subdirectory name. Use this value as the `model` parameter in generation requests.
+    </ResponseField>
+    <ResponseField name="object" type="string">
+      Always `"model"`.
+    </ResponseField>
+    <ResponseField name="created" type="number">
+      Unix timestamp.
+    </ResponseField>
+    <ResponseField name="owned_by" type="string">
+      Always `"omlx"`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example response
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "qwen3-8b",
+      "object": "model",
+      "created": 1746835200,
+      "owned_by": "omlx"
+    },
+    {
+      "id": "bge-m3",
+      "object": "model",
+      "created": 1746835200,
+      "owned_by": "omlx"
+    }
+  ]
+}
+```
+
+## Model status
+
+**`GET /v1/models/status`**
+
+Returns extended per-model information including the model type and context window configuration. This endpoint is an oMLX extension and is not part of the OpenAI API spec.
+
+```bash
+curl http://localhost:8000/v1/models/status
+```
+
+<ResponseField name="models" type="object[]">
+  Array of model status objects.
+
+  <Expandable title="Model status properties">
+    <ResponseField name="id" type="string">
+      Model identifier (alias or directory name).
+    </ResponseField>
+    <ResponseField name="model_type" type="string">
+      Detected model type: `"llm"`, `"vlm"`, `"embedding"`, or `"reranker"`.
+    </ResponseField>
+    <ResponseField name="loaded" type="boolean">
+      Whether the model is currently loaded into memory.
+    </ResponseField>
+    <ResponseField name="max_context_window" type="number">
+      Maximum context window in tokens as configured for this model.
+    </ResponseField>
+    <ResponseField name="max_tokens" type="number">
+      Maximum generation tokens as configured for this model.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example response
+
+```json
+{
+  "models": [
+    {
+      "id": "qwen3-8b",
+      "model_type": "llm",
+      "loaded": true,
+      "max_context_window": 32768,
+      "max_tokens": 32768
+    },
+    {
+      "id": "bge-m3",
+      "model_type": "embedding",
+      "loaded": false,
+      "max_context_window": 8192,
+      "max_tokens": 8192
+    }
+  ]
+}
+```
+
+## Health check
+
+**`GET /health`**
+
+Returns a simple health check response. Useful for monitoring and readiness checks in scripts or container orchestration.
+
+```bash
+curl http://localhost:8000/health
+```
+
+**Response:**
+
+```json
+{
+  "status": "ok"
+}
+```
+
+<Tip>
+  Use the `/health` endpoint in shell scripts to wait for the server to be ready before sending the first request:
+
+  ```bash
+  until curl -sf http://localhost:8000/health > /dev/null; do sleep 1; done
+  echo "Server is ready"
+  ```
+</Tip>
+
+## Load and unload models
+
+Two additional endpoints let you control model loading state programmatically:
+
+**`POST /v1/models/{model_id}/load`** — Load a model into memory.
+
+**`POST /v1/models/{model_id}/unload`** — Unload a model from memory.
+
+These are equivalent to using the status badges in the admin panel. The `model_id` path parameter accepts the model alias or directory name.
+
+```bash
+# Unload a model to free memory
+curl -X POST http://localhost:8000/v1/models/qwen3-8b/unload
+
+# Load it back
+curl -X POST http://localhost:8000/v1/models/qwen3-8b/load
+```

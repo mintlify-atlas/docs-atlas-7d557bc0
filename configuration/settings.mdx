@@ -1,0 +1,193 @@
+---
+title: "oMLX Settings, Persistence, and Environment Variables"
+description: "How oMLX merges settings.json, OMLX_ environment variables, and CLI flags. Covers the full list of supported env vars, directory layout, and log locations."
+---
+
+oMLX uses a layered configuration system: every setting has a compiled-in default, which can be overridden by `~/.omlx/settings.json`, then by `OMLX_*` environment variables, and finally by CLI flags passed to `omlx serve`. Values flow in that order — CLI always wins. When you pass any non-default CLI flag, oMLX writes the merged result back to `settings.json` automatically so the next bare `omlx serve` picks it up without requiring you to repeat the flags.
+
+## Priority order
+
+```
+CLI flags  >  OMLX_* environment variables  >  ~/.omlx/settings.json  >  built-in defaults
+```
+
+## Settings file
+
+The settings file lives at `~/.omlx/settings.json` (or `<base-path>/settings.json` if you use `--base-path`). It is created automatically on first run and updated whenever you pass non-default CLI flags.
+
+```json
+{
+  "version": "1.0",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "log_level": "info",
+    "sse_keepalive_mode": "chunk"
+  },
+  "model": {
+    "model_dirs": ["/Users/you/models"],
+    "max_model_memory": "32GB"
+  },
+  "memory": {
+    "max_process_memory": "auto"
+  },
+  "scheduler": {
+    "max_concurrent_requests": 8
+  },
+  "cache": {
+    "enabled": true,
+    "ssd_cache_max_size": "auto",
+    "hot_cache_max_size": "0",
+    "initial_cache_blocks": 256
+  },
+  "auth": {
+    "api_key": null
+  },
+  "mcp": {
+    "config_path": null
+  }
+}
+```
+
+<Tip>
+  You can also edit `settings.json` directly in a text editor. oMLX reads it on every `omlx serve` invocation. Invalid values cause a validation error at startup with a clear message.
+</Tip>
+
+## Environment variables
+
+All environment variables are prefixed with `OMLX_`. They override the settings file but are themselves overridden by CLI flags.
+
+### Server
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `OMLX_HOST` | string | `127.0.0.1` | Bind address for the HTTP server. |
+| `OMLX_PORT` | integer | `8000` | TCP port to listen on. |
+| `OMLX_LOG_LEVEL` | string | `info` | Log verbosity: `trace`, `debug`, `info`, `warning`, or `error`. |
+
+### Model
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `OMLX_MODEL` | string | *(none)* | Model name passed to single-model configurations (used by `OMLXConfig.from_env`). |
+| `OMLX_MODEL_DIR` | string | `~/.omlx/models` | Comma-separated list of model directories. |
+| `OMLX_MAX_MODEL_MEMORY` | string | `auto` | Maximum memory for loaded models, e.g. `32GB` or `disabled`. |
+| `OMLX_MAX_PROCESS_MEMORY` | string | `auto` | Total process memory limit: a percentage like `80%`, `auto`, or `disabled`. |
+| `OMLX_TRUST_REMOTE_CODE` | boolean | `false` | Allow execution of custom Python shipped with a model repository (`modeling_*.py`). **Disabled by default for security** — only enable for models you trust explicitly. See [trust_remote_code security note](/configuration/models#trust-remote-code). |
+
+### Generation
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `OMLX_MAX_TOKENS` | integer | `32768` | Default maximum tokens to generate per request. |
+| `OMLX_TEMPERATURE` | float | `1.0` | Default sampling temperature. |
+
+### Scheduler
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `OMLX_MAX_CONCURRENT_REQUESTS` | integer | `8` | Maximum number of requests processed simultaneously. Also accepted as `OMLX_MAX_NUM_SEQS`. |
+
+### Cache
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `OMLX_CACHE_ENABLED` | boolean | `false` | Enable the paged SSD cache (set to `true` to activate). |
+| `OMLX_SSD_CACHE_DIR` | string | `~/.omlx/cache` | Directory for the SSD cold cache tier. |
+| `OMLX_SSD_CACHE_MAX_SIZE` | string | `auto` | Maximum disk space for the SSD cache tier. |
+| `OMLX_HOT_CACHE_ONLY` | boolean | `false` | When `true`, serve from the in-memory hot cache only (no disk writes). |
+| `OMLX_INITIAL_CACHE_BLOCKS` | integer | `256` | Pre-allocated cache blocks at startup. |
+
+### MCP
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `OMLX_MCP_CONFIG` | string | *(none)* | Path to MCP configuration file (JSON or YAML). |
+
+### Authentication
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `OMLX_API_KEY` | string | *(none)* | API key required on all requests when set. |
+
+### HuggingFace and ModelScope
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `OMLX_HF_ENDPOINT` | string | *(none)* | Custom HuggingFace Hub URL, e.g. `https://hf-mirror.com`. |
+| `OMLX_MS_ENDPOINT` | string | *(none)* | Custom ModelScope endpoint URL. |
+
+### Network
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `OMLX_HTTP_PROXY` | string | *(none)* | HTTP proxy URL. |
+| `OMLX_HTTPS_PROXY` | string | *(none)* | HTTPS proxy URL. |
+| `OMLX_NO_PROXY` | string | *(none)* | Comma-separated bypass list. |
+| `OMLX_CA_BUNDLE` | string | *(none)* | Path to CA bundle PEM for TLS interception. |
+
+### Logging
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `OMLX_LOG_DIR` | string | `~/.omlx/logs` | Override the directory where log files are written. |
+| `OMLX_LOG_RETENTION_DAYS` | integer | `7` | Days to keep rotated log files before deletion. |
+
+## Directories
+
+oMLX creates the following directories automatically under `~/.omlx/` (or the directory set by `--base-path`):
+
+| Directory | Purpose |
+|-----------|---------|
+| `~/.omlx/models` | Default model storage. Scanned for MLX model subdirectories. |
+| `~/.omlx/logs` | Structured server log and crash log. |
+| `~/.omlx/cache` | Default paged SSD cache directory. |
+
+If a model directory cannot be created (for example, a disconnected external drive), oMLX logs a warning and skips it rather than failing. The `logs` and `cache` directories are required — a failure to create them is fatal.
+
+## Log locations
+
+<Tabs>
+  <Tab title="Homebrew service">
+    When running `brew services start omlx`, logs go to two places:
+
+    | Log | Location | Contents |
+    |-----|----------|---------|
+    | Service log | `$(brew --prefix)/var/log/omlx.log` | stdout and stderr from the service process |
+    | Server log | `~/.omlx/logs/server.log` | Structured application log with request IDs |
+    | Crash log | `~/.omlx/logs/crash.log` | Python thread dumps captured on SIGABRT/SIGSEGV |
+
+    ```bash
+    # Follow the service log
+    tail -f $(brew --prefix)/var/log/omlx.log
+
+    # Follow the structured server log
+    tail -f ~/.omlx/logs/server.log
+    ```
+  </Tab>
+  <Tab title="CLI (omlx serve)">
+    | Log | Location | Contents |
+    |-----|----------|---------|
+    | Server log | `~/.omlx/logs/server.log` | Structured application log with request IDs |
+    | Crash log | `~/.omlx/logs/crash.log` | Python thread dumps on crashes |
+  </Tab>
+</Tabs>
+
+## Homebrew service configuration
+
+When running oMLX as a Homebrew service, CLI flags cannot be passed directly. Use environment variables instead, or run `omlx serve` once with your desired flags to persist them to `settings.json` before starting the service.
+
+```bash
+# Option 1: persist settings first, then start the service
+omlx serve --model-dir ~/models --port 8000 &
+# (Ctrl-C after "Saved CLI arguments to settings.json" appears)
+brew services start omlx
+
+# Option 2: use environment variables in a launchd plist override
+# Set OMLX_MODEL_DIR, OMLX_PORT, etc. in your shell profile or a
+# launchd EnvironmentVariables block
+```
+
+<Note>
+  The Homebrew service uses zero-config defaults (`~/.omlx/models`, port 8000) unless settings.json is present or environment variables are set.
+</Note>
